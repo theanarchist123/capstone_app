@@ -134,11 +134,33 @@ export default function CaseResultsPage() {
     const runSimulation = async () => {
         setSimulating(true);
         try {
-            // Build the override payload mapping simple frontend states to backend properties
+            // Build the override payload mapping frontend states to backend properties
             const overrides = {
-                er_status: simEr,
-                ki67_percent: simKi67[0],
-                menopausal_status: simMenopause ? "post" : "pre"
+                // Base Tumour
+                tumour_size: 2.5,
+                stage: caseData.tumour?.stage || "II",
+                grade: caseData.tumour?.grade || 2,
+                // Full Biomarker Panel
+                er_status: simEr, // Override from purely the Simulator UI
+                pr_status: caseData.biomarkers?.pr || "Unknown",
+                her2_status: caseData.biomarkers?.her2 || "Unknown",
+                ki67_percent: simKi67[0], // Override from purely the Simulator UI
+                pdl1_status: caseData.biomarkers?.pdl1 || "Unknown",
+                brca1_status: caseData.biomarkers?.brca1 || "Unknown",
+                brca2_status: caseData.biomarkers?.brca2 || "Unknown",
+                pik3ca_status: caseData.biomarkers?.pik3ca || "Unknown",
+                cyclin_d1: caseData.biomarkers?.cyclinD1 || "Unknown",
+                tp53_status: caseData.biomarkers?.tp53 || "Unknown",
+                top2a: caseData.biomarkers?.top2a || "Unknown",
+                bcl2: caseData.biomarkers?.bcl2 || "Unknown",
+                tils_percent: caseData.biomarkers?.tils,
+                oncotype_dx_score: caseData.biomarkers?.oncotypeDX,
+                mammaprint: caseData.biomarkers?.mammaPrint || "Unknown",
+                pam50: caseData.biomarkers?.pam50 || "Unknown",
+                // Health Profile
+                menopausal_status: simMenopause ? "post" : (caseData.healthProfile?.menopausalStatus || "Unknown"),
+                lvef_percent: caseData.healthProfile?.lvef,
+                ecog_score: caseData.healthProfile?.performanceScore || 0,
             };
 
             // Trigger the simulation engine on Backend

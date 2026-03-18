@@ -57,7 +57,47 @@ export const useCasesStore = create<CasesState>()((set) => ({
     set({ isLoading: true });
     try {
       const res = await api.getCases();
-      set({ cases: res.data || [] });
+      const mappedCases = (res.data || []).map((c: any) => ({
+        ...c,
+        id: c.id,
+        patientName: c.patient_name || c.patientName || "Unknown Patient",
+        patientAge: c.patient_age || c.patientAge || 0,
+        patientSex: c.patient_sex || c.patientSex || "Female",
+        status: (c.status || "Pending Review").replace(/_/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase()),
+        subtype: c.subtype || "Unknown",
+        createdAt: c.created_at || c.createdAt || new Date().toISOString(),
+        updatedAt: c.updated_at || c.updatedAt || new Date().toISOString(),
+        doctorId: c.doctor_id || c.doctorId,
+        tumour: c.tumour || { 
+          stage: c.clinical_data?.stage || "Unknown", 
+          grade: c.clinical_data?.grade || 2 
+        },
+        biomarkers: c.biomarkers || {
+          er: c.clinical_data?.er_status || "Unknown",
+          pr: c.clinical_data?.pr_status || "Unknown",
+          her2: c.clinical_data?.her2_status || "Unknown",
+          ki67: c.clinical_data?.ki67_percent,
+          pdl1: c.clinical_data?.pdl1_status || "Unknown",
+          brca1: c.clinical_data?.brca1_status || "Unknown",
+          brca2: c.clinical_data?.brca2_status || "Unknown",
+          pik3ca: c.clinical_data?.pik3ca_status || "Unknown",
+          cyclinD1: c.clinical_data?.cyclin_d1 || "Unknown",
+          tp53: c.clinical_data?.tp53_status || "Unknown",
+          top2a: c.clinical_data?.top2a || "Unknown",
+          bcl2: c.clinical_data?.bcl2 || "Unknown",
+          tils: c.clinical_data?.tils_percent,
+          oncotypeDX: c.clinical_data?.oncotype_dx_score,
+        },
+        healthProfile: c.healthProfile || {
+          lvef: c.clinical_data?.lvef_percent,
+          menopausalStatus: c.clinical_data?.menopausal_status || "Unknown",
+          performanceScore: c.clinical_data?.ecog_score,
+          comorbidities: [],
+          medications: [],
+          allergies: [],
+        }
+      }));
+      set({ cases: mappedCases });
     } catch (e) {
       console.error("Failed to fetch cases:", e);
     } finally {
