@@ -1,7 +1,6 @@
 
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Outfit&weight=700&size=36&duration=3000&pause=800&color=E84A5F&center=true&vCenter=true&width=600&lines=OnCopilot+Backend;FastAPI+·+Python+·+Clinical+AI" alt="Typing SVG" />
-</p>
+<h1 align="center">🩺 OnCopilot — Backend</h1>
+<h3 align="center">FastAPI · Python · Clinical AI</h3>
 
 <p align="center">
   <strong>Async clinical decision-support API for oncology</strong><br/>

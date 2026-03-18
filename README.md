@@ -1,7 +1,6 @@
 
-<p align="center">
-  <img src="https://readme-typing-svg.demolab.com?font=Outfit&weight=700&size=42&duration=3000&pause=800&color=E84A5F&center=true&vCenter=true&width=700&lines=🩺+OnCopilot;Clinical+AI+for+Oncology;Precision+Medicine%2C+Reimagined" alt="Typing SVG" />
-</p>
+<h1 align="center">🩺 OnCopilot</h1>
+<h3 align="center">Clinical AI · Precision Medicine · Reimagined</h3>
 
 <p align="center">
   <strong>An AI-powered clinical decision-support platform for oncologists.</strong><br/>
