@@ -12,6 +12,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { getSubtypeColor, getSubtypeBg, animateCounter, cn } from "@/lib/utils";
 import { ShieldAlert, Info, GitCommit, GitPullRequest, Search, CheckCircle2, ChevronRight, Activity, Save, History, SlidersHorizontal, Scale } from "lucide-react";
 
@@ -53,60 +54,96 @@ const ConstellationMap = ({ subtype, biomarkers }: { subtype: string, biomarkers
         { id: "TOP2A", val: biomarkers.top2a, cat: "Proliferation"}, { id: "BCL2", val: biomarkers.bcl2, cat: "Mutation"}
     ];
 
-    const radius = 120;
-    const center = 150;
-    const color = getSubtypeColor(subtype);
+    // All coordinates must be POSITIVE to avoid SVG viewport clipping.
+    // Shift center inward by nodePad so outermost nodes never go below x=0 or y=0.
+    const nodeR   = 18;
+    const nodePad = nodeR + 8;          // 26px breathing room around every outer node
+    const radius  = 130;
+    const cx      = nodePad + radius + nodeR;  // center X in viewBox (= 174)
+    const cy      = cx;                         // center Y (square)
+    const vbSize  = cx * 2;                     // total viewBox size (= 348)
+    const color   = getSubtypeColor(subtype);
+
+    const [isFullscreen, setIsFullscreen] = useState(false);
+
+    const svgContent = (
+        <svg
+            width="100%"
+            viewBox={`0 0 ${vbSize} ${vbSize}`}
+            className="relative z-10"
+            style={{ display: "block" }}
+        >
+            {/* Connections to center */}
+            {marks.map((m, i) => {
+                const angle = (i * (Math.PI * 2)) / marks.length;
+                const x = cx + radius * Math.cos(angle);
+                const y = cy + radius * Math.sin(angle);
+                return <line key={`l-${i}`} x1={cx} y1={cy} x2={x} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="2,2"/>
+            })}
+            
+            {/* Center Node */}
+            <circle cx={cx} cy={cy} r="35" fill="rgba(8,13,26,0.8)" stroke={color} strokeWidth="2" className="glow-teal-sm" />
+            <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill={color} fontSize="11" fontWeight="bold">{subtype.split(" ")[0]}</text>
+
+            {/* Orbit Nodes */}
+            {marks.map((m, i) => {
+                const angle = (i * (Math.PI * 2)) / marks.length;
+                const x = cx + radius * Math.cos(angle);
+                const y = cy + radius * Math.sin(angle);
+                const isPos = m.val === "Positive";
+                const isNeg = m.val === "Negative";
+                
+                return (
+                    <TooltipProvider key={m.id}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                            <g className="cursor-pointer group">
+                                <circle 
+                                    cx={x} cy={y} r="18" 
+                                    fill={isPos ? color : "rgba(15,52,96,0.5)"} 
+                                    stroke={isNeg ? "rgba(255,255,255,0.5)" : isPos ? color : "rgba(255,255,255,0.1)"} 
+                                    strokeWidth="1.5"
+                                    className="transition-all duration-300 group-hover:scale-110 origin-center"
+                                />
+                                <text x={x} y={y} textAnchor="middle" dominantBaseline="middle" fill={isPos ? "#080D1A" : "#a1a1aa"} fontSize="8" fontWeight="bold">{m.id.length > 4 ? m.id.substring(0,4) : m.id}</text>
+                            </g>
+                            </TooltipTrigger>
+                            <TooltipContent className="bg-slate-900 border-slate-700">
+                                <p className="font-bold text-white mb-1">{m.id} : <span className={isPos ? "text-emerald-400" : isNeg ? "text-rose-400" : "text-slate-500"}>{m.val}</span></p>
+                                <p className="text-xs text-slate-400 text-center">{m.cat}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                )
+            })}
+        </svg>
+    );
 
     return (
-        <div className="flex justify-center items-center p-8 bg-slate-900 border border-slate-800 rounded-2xl relative overflow-hidden">
-             <div className="absolute inset-0 bg-gradient-radial from-slate-800/20 to-transparent opacity-50" />
-             <svg width="300" height="300" className="relative z-10 overflow-visible">
-                 {/* Connections to center */}
-                 {marks.map((m, i) => {
-                     const angle = (i * (Math.PI * 2)) / marks.length;
-                     const x = center + radius * Math.cos(angle);
-                     const y = center + radius * Math.sin(angle);
-                     return <line key={`l-${i}`} x1={center} y1={center} x2={x} y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" strokeDasharray="2,2"/>
-                 })}
-                 
-                 {/* Center Node */}
-                 <circle cx={center} cy={center} r="35" fill="rgba(8,13,26,0.8)" stroke={color} strokeWidth="2" className="glow-teal-sm" />
-                 <text x={center} y={center} textAnchor="middle" dominantBaseline="middle" fill={color} fontSize="10" fontWeight="bold">{subtype.split(" ")[0]}</text>
-
-                 {/* Orbit Nodes */}
-                 {marks.map((m, i) => {
-                     const angle = (i * (Math.PI * 2)) / marks.length;
-                     const x = center + radius * Math.cos(angle);
-                     const y = center + radius * Math.sin(angle);
-                     const isPos = m.val === "Positive";
-                     const isNeg = m.val === "Negative";
-                     const isUnk = !isPos && !isNeg;
-                     
-                     return (
-                         <TooltipProvider key={m.id}>
-                           <Tooltip>
-                             <TooltipTrigger asChild>
-                               <g className="cursor-pointer group">
-                                   <circle 
-                                      cx={x} cy={y} r="14" 
-                                      fill={isPos ? color : "rgba(15,52,96,0.5)"} 
-                                      stroke={isNeg ? "rgba(255,255,255,0.5)" : isPos ? color : "rgba(255,255,255,0.1)"} 
-                                      strokeWidth="1.5"
-                                      className="transition-all duration-300 group-hover:scale-125 origin-center"
-                                   />
-                                   <text x={x} y={y} textAnchor="middle" dominantBaseline="middle" fill={isPos ? "#080D1A" : "#a1a1aa"} fontSize="8" fontWeight="bold">{m.id.substring(0,3)}</text>
-                               </g>
-                             </TooltipTrigger>
-                             <TooltipContent className="bg-slate-900 border-slate-700">
-                                 <p className="font-bold text-white mb-1">{m.id} : <span className={isPos ? "text-emerald-400" : isNeg ? "text-rose-400" : "text-slate-500"}>{m.val}</span></p>
-                                 <p className="text-xs text-slate-400 text-center">{m.cat}</p>
-                             </TooltipContent>
-                           </Tooltip>
-                         </TooltipProvider>
-                     )
-                 })}
-             </svg>
+        <>
+        <div 
+            className="w-full bg-slate-900 border border-slate-800 rounded-2xl relative p-2 cursor-pointer transition-transform hover:scale-[1.02]"
+            onDoubleClick={() => setIsFullscreen(true)}
+            title="Double click to view full screen"
+        >
+             <div className="absolute inset-0 bg-gradient-radial from-slate-800/20 to-transparent opacity-50 rounded-2xl" />
+             {/* viewBox is always 0 0 vbSize vbSize — no negative coords, no clipping */}
+             {svgContent}
+             <div className="absolute bottom-2 right-2 text-[10px] text-slate-500 bg-slate-950/50 px-2 py-1 rounded backdrop-blur border border-white/5 font-medium pointer-events-none">
+                Double-click to expand
+             </div>
         </div>
+
+        <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+            <DialogContent className="max-w-4xl max-h-[90vh] bg-slate-950 border-slate-800 flex flex-col items-center justify-center p-8">
+                <DialogTitle className="sr-only">Full Screen Constellation Map</DialogTitle>
+                <div className="w-full h-full max-h-[75vh] flex items-center justify-center relative">
+                    <div className="absolute inset-0 bg-gradient-radial from-slate-800/20 to-transparent opacity-50 rounded-2xl pointer-events-none" />
+                    {svgContent}
+                </div>
+            </DialogContent>
+        </Dialog>
+        </>
     );
 };
 
@@ -131,6 +168,21 @@ export default function CaseResultsPage() {
 
     if (!caseData) return <div className="p-20 text-center">Loading...</div>;
 
+    // Local biomarker-based classifier (runs when backend is unreachable)
+    const classifyLocally = (erStatus: string, her2: string, ki67Val: number, pr: string) => {
+        const isER  = erStatus === "Positive";
+        const isPR  = pr === "Positive";
+        const isHER2 = her2 === "Positive";
+        const highKi67 = ki67Val > 20;
+
+        if (isER && !isHER2 && !highKi67) return "Luminal A" as const;
+        if (isER && !isHER2 &&  highKi67) return "Luminal B" as const;
+        if (isER &&  isHER2)              return "Luminal B" as const;  // HER2+ Luminal maps to Luminal B
+        if (!isER && !isPR && isHER2)     return "HER2-Enriched" as const;
+        if (!isER && !isPR && !isHER2)    return "TNBC" as const;
+        return "Luminal A" as const;
+    };
+
     const runSimulation = async () => {
         setSimulating(true);
         try {
@@ -141,10 +193,10 @@ export default function CaseResultsPage() {
                 stage: caseData.tumour?.stage || "II",
                 grade: caseData.tumour?.grade || 2,
                 // Full Biomarker Panel
-                er_status: simEr, // Override from purely the Simulator UI
+                er_status: simEr,
                 pr_status: caseData.biomarkers?.pr || "Unknown",
                 her2_status: caseData.biomarkers?.her2 || "Unknown",
-                ki67_percent: simKi67[0], // Override from purely the Simulator UI
+                ki67_percent: simKi67[0],
                 pdl1_status: caseData.biomarkers?.pdl1 || "Unknown",
                 brca1_status: caseData.biomarkers?.brca1 || "Unknown",
                 brca2_status: caseData.biomarkers?.brca2 || "Unknown",
@@ -163,46 +215,77 @@ export default function CaseResultsPage() {
                 ecog_score: caseData.healthProfile?.performanceScore || 0,
             };
 
-            // Trigger the simulation engine on Backend
-            const res = await api.simulateAnalysis(caseData.id, overrides);
-            
-            if (res.success && res.data) {
-                const backendData = res.data;
-                // Map the Python backend structure to the TS frontend structure
-                const mappedRecommendations = (backendData.recommendations || []).map((r: any, idx: number) => ({
-                    id: `rec-${idx}`,
-                    isTopRecommendation: r.rank === 1,
-                    name: r.protocol_name || "Treatment Protocol",
-                    description: r.clinical_notes || "",
-                    guidelineSource: r.guideline_source || "AI Generated",
-                    confidenceScore: Math.round((r.confidence_score || 0) * 100),
-                    duration: r.duration_months ? `${r.duration_months} Months` : "Unknown",
-                    ruleTrace: (r.rule_trace || []).map((tr: any, trIdx: number) => ({
-                        id: `tr-${idx}-${trIdx}`,
-                        label: tr.biomarker || tr.label || "Feature",
-                        value: tr.value,
-                        conclusion: tr.implication || tr.conclusion || "Matched"
-                    }))
-                }));
+            // Attempt backend call
+            let backendSucceeded = false;
+            try {
+                const res = await api.simulateAnalysis(caseData.id, overrides);
+                if (res.success && res.data) {
+                    const backendData = res.data;
+                    backendSucceeded = true;
 
-                const mappedAlerts = (backendData.alerts || []).map((a: any, idx: number) => ({
-                    id: `alert-${idx}`,
-                    triggerSource: a.contraindication_type || a.source || "System Alert",
-                    affectedTreatment: a.affected_drug || "Protocol",
-                    description: a.reason || a.description || "Safety alert triggered.",
-                    recommendedAction: a.action || a.recommendation || "Review required."
-                }));
+                    const mappedRecommendations = (backendData.recommendations || []).map((r: any, idx: number) => ({
+                        id: `rec-${idx}`,
+                        isTopRecommendation: r.rank === 1,
+                        name: r.protocol_name || "Treatment Protocol",
+                        description: r.clinical_notes || "",
+                        guidelineSource: r.guideline_source || "AI Generated",
+                        confidenceScore: Math.round((r.confidence_score || 0) * 100),
+                        duration: r.duration_months ? `${r.duration_months} Months` : "Unknown",
+                        ruleTrace: (r.rule_trace || []).map((tr: any, trIdx: number) => ({
+                            id: `tr-${idx}-${trIdx}`,
+                            label: tr.biomarker || tr.label || "Feature",
+                            value: tr.value,
+                            conclusion: tr.implication || tr.conclusion || "Matched"
+                        }))
+                    }));
 
-                // Update real Zustand store + Sync Backend
-                updateCase(caseData.id, { 
-                    subtype: backendData.molecular_subtype || caseData.subtype,
-                    recommendations: mappedRecommendations,
-                    safetyAlerts: mappedAlerts,
+                    const mappedAlerts = (backendData.alerts || []).map((a: any, idx: number) => ({
+                        id: `alert-${idx}`,
+                        triggerSource: a.contraindication_type || a.source || "System Alert",
+                        affectedTreatment: a.affected_drug || "Protocol",
+                        description: a.reason || a.description || "Safety alert triggered.",
+                        recommendedAction: a.action || a.recommendation || "Review required."
+                    }));
+
+                    // Derive stage & grade from backend response
+                    const newStage = backendData.stage || caseData.tumour?.stage;
+                    const newGrade = backendData.grade ?? caseData.tumour?.grade;
+
+                    updateCase(caseData.id, {
+                        subtype: backendData.molecular_subtype || caseData.subtype,
+                        tumour: { ...caseData.tumour, stage: newStage, grade: newGrade },
+                        biomarkers: {
+                            ...caseData.biomarkers,
+                            er: simEr as import("@/types").BiomarkerStatus,
+                            ki67: simKi67[0],
+                        },
+                        recommendations: mappedRecommendations,
+                        safetyAlerts: mappedAlerts,
+                    });
+                }
+            } catch (_) {
+                // backend unreachable — fall through to local classifier
+            }
+
+            // Fallback: local classification when backend is unavailable
+            if (!backendSucceeded) {
+                const localSubtype = classifyLocally(
+                    simEr,
+                    caseData.biomarkers?.her2 || "Unknown",
+                    simKi67[0],
+                    caseData.biomarkers?.pr || "Unknown"
+                );
+                updateCase(caseData.id, {
+                    subtype: localSubtype,
+                    biomarkers: {
+                        ...caseData.biomarkers,
+                        er: simEr as import("@/types").BiomarkerStatus,
+                        ki67: simKi67[0],
+                    },
                 });
             }
         } catch (e) {
-            console.error("Analysis failed:", e);
-            // Fallback UI or toast could go here
+            console.error("Simulation error:", e);
         } finally {
             setSimulating(false);
         }
