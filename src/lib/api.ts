@@ -2,29 +2,29 @@ import { ClinicalCase, User } from "@/types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
-// Helper to get auth token
-export const getAuthToken = () => {
-  // We'll read the token right from the auth store or local storage later
-  // For now, let's just make the request raw or grab it if available
-  const authStateStr = localStorage.getItem("cancer-copilot-auth");
-  if (authStateStr) {
-    try {
-      const authState = JSON.parse(authStateStr);
-      // Depending on how login was implemented, the token might be here
-      // Let's assume there's an access_token for now if we add one later
-      return authState?.state?.user?.token || ""; 
-    } catch {
-      return "";
-    }
+// ─── Auth token reader ────────────────────────────────────────────────────────
+// Reads from Zustand-persisted localStorage. Tries both 'token' and
+// 'access_token' field names to handle any login implementation variation.
+export const getAuthToken = (): string => {
+  if (typeof window === "undefined") return "";
+  const raw = localStorage.getItem("cancer-copilot-auth");
+  if (!raw) return "";
+  try {
+    const state = JSON.parse(raw)?.state?.user;
+    // Login page stores: { ...mockUser, token: access_token }
+    const tok = state?.token || state?.access_token || "";
+    if (tok) return tok;
+  } catch {
+    // ignore parse errors
   }
   return "";
 };
 
+// ─── Fetch wrapper ────────────────────────────────────────────────────────────
 const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
   const token = getAuthToken();
   const headers = new Headers(options.headers || {});
   headers.set("Content-Type", "application/json");
-  
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
@@ -36,19 +36,52 @@ const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);
-    throw new Error(errorData?.detail || errorData?.error || `API error: ${response.status}`);
+    throw new Error(
+      errorData?.detail || errorData?.error || `API error ${response.status}`
+    );
   }
 
   return response.json();
 };
 
+// ─── Public (no-auth) fetch ───────────────────────────────────────────────────
+// Used for endpoints that intentionally don't require authentication
+const fetchPublic = async (endpoint: string, options: RequestInit = {}) => {
+  const token = getAuthToken(); // still attach if available, but doesn't fail if absent
+  const headers = new Headers(options.headers || {});
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new Error(
+      errorData?.detail || errorData?.error || `API error ${response.status}`
+    );
+  }
+
+  return response.json();
+};
+
+// ─── API surface ──────────────────────────────────────────────────────────────
 export const api = {
+  // Health
+  health: () => fetchPublic("/health"),
+
   // Auth
+  register: (data: any) => fetchWithAuth("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }),
   login: (credentials: any) => fetchWithAuth("/auth/login", {
     method: "POST",
     body: JSON.stringify(credentials),
   }),
-  
+
   // Cases
   getCases: () => fetchWithAuth("/cases"),
   getCase: (id: string) => fetchWithAuth(`/cases/${id}`),
@@ -62,18 +95,31 @@ export const api = {
   }),
 
   // Clinical Data
-  saveClinicalData: (caseId: string, data: any) => fetchWithAuth(`/cases/${caseId}/clinical`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  }),
+  saveClinicalData: (caseId: string, data: any) =>
+    fetchWithAuth(`/cases/${caseId}/clinical`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   // Analysis
-  runAnalysis: (caseId: string) => fetchWithAuth(`/cases/${caseId}/analyse`, {
-    method: "POST",
-  }),
-  
-  simulateAnalysis: (caseId: string, overrides: any) => fetchWithAuth(`/cases/${caseId}/analyse/simulate`, {
-    method: "POST",
-    body: JSON.stringify({ overrides }),
-  }),
+  runAnalysis: (caseId: string) =>
+    fetchWithAuth(`/cases/${caseId}/analyse`, { method: "POST" }),
+
+  simulateAnalysis: (caseId: string, overrides: any) =>
+    fetchWithAuth(`/cases/${caseId}/analyse/simulate`, {
+      method: "POST",
+      body: JSON.stringify({ overrides }),
+    }),
+
+  // ─── Instant Analysis (stateless — public endpoint, no auth required) ──────
+  // Auth is optional on the backend so this never 401s even after token expiry.
+  instantAnalysis: (payload: {
+    patient_name?: string;
+    patient_age?: number;
+    clinical_data: Record<string, any>;
+  }) =>
+    fetchPublic("/analyse/instant", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
 };

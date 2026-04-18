@@ -17,7 +17,7 @@ from core.database import engine, Base
 import models  # noqa: F401
 
 # Routes
-from api.routes import auth, cases, clinical, analysis, reports, pdf, analytics, notifications, second_opinion
+from api.routes import auth, cases, clinical, analysis, reports, pdf, analytics, notifications, second_opinion, instant_analysis
 
 # ─── Rate limiter ────────────────────────────────────────────────────────────
 limiter = Limiter(key_func=get_remote_address, default_limits=[f"{settings.rate_limit_per_minute}/minute"])
@@ -80,6 +80,7 @@ app.include_router(auth.router)
 app.include_router(cases.router)
 app.include_router(clinical.router)
 app.include_router(analysis.router)
+app.include_router(instant_analysis.router)
 app.include_router(reports.router)
 app.include_router(pdf.router)
 app.include_router(analytics.router)
@@ -87,8 +88,9 @@ app.include_router(notifications.router)
 app.include_router(second_opinion.router)
 
 
-# ─── Health check ─────────────────────────────────────────────────────────────
+# ─── Health check — registered at both paths for compatibility ───────────────
 @app.get("/health", tags=["health"])
+@app.get("/api/health", tags=["health"])
 async def health():
     return {"status": "ok", "service": "CancerCopilot API", "version": "1.0.0"}
 

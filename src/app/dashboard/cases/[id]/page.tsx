@@ -152,22 +152,25 @@ const ConstellationMap = ({ subtype, biomarkers }: { subtype: string, biomarkers
 export default function CaseResultsPage() {
     const params = useParams();
     const cId = Array.isArray(params.id) ? params.id[0] : params.id;
-    const { cases, updateCase } = useCasesStore(s => ({
-        cases: s.cases.length ? s.cases : mockCases,
-        updateCase: s.updateCase
-    }));
-    const caseData = cases.find(c => c.id === cId) || cases[0];
+    const { cases, updateCase, fetchCases, isLoading } = useCasesStore();
+    const caseData = cases.find(c => c.id === cId);
+
+    useEffect(() => {
+        if (!cases.length && !isLoading) {
+            fetchCases();
+        }
+    }, [cases.length, isLoading, fetchCases]);
 
     const [simulating, setSimulating] = useState(false);
     const [simEr, setSimEr] = useState("Positive");
     const [simKi67, setSimKi67] = useState([14]);
     const [simMenopause, setSimMenopause] = useState(false);
-    
+    // Fallbacks while loading
+    if (isLoading) return <div className="p-20 text-center">Loading case from server...</div>;
+    if (!caseData) return <div className="p-20 text-center">Case not found</div>;
+
     // Subtype Unfold Animation variables
     const color = getSubtypeColor(caseData.subtype);
-
-    if (!caseData) return <div className="p-20 text-center">Loading...</div>;
-
     // Local biomarker-based classifier (runs when backend is unreachable)
     const classifyLocally = (erStatus: string, her2: string, ki67Val: number, pr: string) => {
         const isER  = erStatus === "Positive";

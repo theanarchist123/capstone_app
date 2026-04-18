@@ -318,8 +318,9 @@ def generate_treatment_pathways(
     immune_flags: list[dict],
 ) -> list[dict]:
     """
-    Generates 2-4 ranked treatment options based on subtype + modifiers.
-    Each option conforms to the required schema.
+    Generates exactly 3 ranked treatment options (PRIMARY / ALTERNATIVE / ESCALATION)
+    for every subtype + patient profile combination.
+    Based strictly on NCCN 2024 + ESMO 2023 guidelines.
     """
     protocols: list[dict] = []
 
@@ -333,164 +334,269 @@ def generate_treatment_pathways(
     node_positive = c.lymph_nodes_involved and (c.lymph_node_count or 0) > 0
     high_risk = high_stage or node_positive or c.grade == 3
     post_meno = "post" in (c.menopausal_status or "").lower()
+    lvef_ok = (c.lvef_percent or 60) >= 50
 
     odx_high = any(m["risk"] == "high" for m in genomic_mods if m["source"] == "OncotypeDX")
-    odx_low = any(m["risk"] == "low" for m in genomic_mods if m["source"] == "OncotypeDX")
+    odx_low  = any(m["risk"] == "low"  for m in genomic_mods if m["source"] == "OncotypeDX")
     brca_positive = any(m["source"] in ("BRCA1", "BRCA2") for m in genomic_mods)
-    parp_flag = any(f.get("drug_flag") == "Palbociclib" for f in immune_flags)
+    cdk46_flag    = any(f.get("drug_flag") == "Palbociclib" for f in immune_flags)
+    pdl1_pos      = any(f["source"] == "PD-L1" for f in immune_flags)
+    ki67 = c.ki67_percent if c.ki67_percent is not None else 14.0
+    endocrine_drug = "Anastrozole / Letrozole" if post_meno else "Tamoxifen"
 
-    # ── Luminal A ──
+    # ── LUMINAL A ──────────────────────────────────────────────────────────────
     if luminal_a:
+        # PATH 1 — Endocrine monotherapy (always preferred for Luminal A)
         protocols.append({
             "rank": 1,
             "protocol_name": "Endocrine Monotherapy",
-            "guideline_source": "St. Gallen",
+            "guideline_source": "St. Gallen 2023",
             "confidence_score": 0.94,
-            "treatment_components": ["Hormonal Therapy", "Chemotherapy De-escalation"],
-            "drug_names": ["Tamoxifen (pre-menopausal)" if not post_meno else "Letrozole / Anastrozole (post-menopausal)"],
+            "treatment_components": ["Hormonal Therapy"],
+            "drug_names": [endocrine_drug, "± OvSup (pre-menopausal)"],
             "duration_months": "60–120",
-            "rule_trace": [{"biomarker": "ER/PR", "value": "Positive", "implication": "Endocrine sensitivity confirmed"},
-                           {"biomarker": "Ki-67", "value": f"{c.ki67_percent}%", "implication": "Low proliferation — chemo not needed"}],
-            "clinical_notes": "Standard of care for Luminal A. Omit chemotherapy per St. Gallen 2023 recommendations unless high-risk features override.",
+            "rule_trace": [
+                {"biomarker": "ER/PR", "value": "Positive", "implication": "Strong endocrine sensitivity — chemotherapy de-escalation justified"},
+                {"biomarker": "Ki-67", "value": f"{ki67}%", "implication": f"{'Low' if ki67 < 14 else 'Borderline'} proliferation (<14%) — Luminal A phenotype confirmed"},
+                {"biomarker": "HER2", "value": c.her2_status, "implication": "HER2 negative — anti-HER2 therapy not required"},
+            ],
+            "clinical_notes": "Chemotherapy omission is the standard for Luminal A per St. Gallen 2023 consensus. Endocrine therapy duration 5–10 years based on risk.",
         })
-        if parp_flag:
-            protocols.append({
-                "rank": 2,
-                "protocol_name": "Endocrine + CDK4/6 Inhibitor",
-                "guideline_source": "NCCN",
-                "confidence_score": 0.82,
-                "treatment_components": ["Hormonal Therapy", "CDK4/6 Inhibition"],
-                "drug_names": ["Palbociclib", "Ribociclib", "Letrozole"],
-                "duration_months": "24–36",
-                "rule_trace": [{"biomarker": "Cyclin D1", "value": "Amplified", "implication": "CDK4/6 inhibitor add-on recommended"}],
-                "clinical_notes": "Cyclin D1 amplification detected; evaluate CDK4/6 inhibitor per NCCN metastatic HR+ pathway.",
-            })
+        # PATH 2 — CDK4/6 inhibitor addition for higher-risk Luminal A
+        protocols.append({
+            "rank": 2,
+            "protocol_name": "Endocrine + CDK4/6 Inhibitor",
+            "guideline_source": "NCCN 2024",
+            "confidence_score": 0.78 if not high_risk else 0.85,
+            "treatment_components": ["CDK4/6 Inhibition", "Endocrine Therapy"],
+            "drug_names": ["Abemaciclib" if node_positive else "Palbociclib / Ribociclib", endocrine_drug],
+            "duration_months": "24 (Abemaciclib) / 24–36 (Palbociclib)",
+            "rule_trace": [
+                {"biomarker": "Stage / Nodes", "value": f"Stage {c.stage}, {'Node+' if node_positive else 'Node-'}", "implication": "High-risk features may warrant CDK4/6 addition per monarchE data"},
+                {"biomarker": "Ki-67", "value": f"{ki67}%", "implication": "CDK4/6 inhibitors complement endocrine blockade in borderline Luminal A"},
+            ],
+            "clinical_notes": f"Abemaciclib adjuvant (monarchE) appropriate if node-positive or high-risk. {'Node-positive detected — strong indication.' if node_positive else 'Consider for high Ki-67 borderline Luminal A.'}",
+        })
+        # PATH 3 — Adjuvant chemotherapy escalation for truly high-risk
+        protocols.append({
+            "rank": 3,
+            "protocol_name": "Adjuvant TC Chemotherapy + Endocrine Therapy",
+            "guideline_source": "NCCN 2024",
+            "confidence_score": 0.62 if not high_risk else 0.74,
+            "treatment_components": ["Chemotherapy", "Endocrine Therapy"],
+            "drug_names": ["Docetaxel", "Cyclophosphamide (TC ×4)", endocrine_drug],
+            "duration_months": "12 (chemo) + 60 (ET)",
+            "rule_trace": [
+                {"biomarker": "Grade / Stage", "value": f"Grade {c.grade}, Stage {c.stage}", "implication": "High-grade or advanced stage may override endocrine-only for Luminal A"},
+                {"biomarker": "OncotypeDX", "value": f"{c.oncotype_dx_score or 'Not tested'}", "implication": "Recurrence score >25 is a threshold for chemotherapy consideration in HR+ disease"},
+            ],
+            "clinical_notes": "TC (Docetaxel + Cyclophosphamide) avoids anthracycline cardiac risk. Reserve for Grade 3 Luminal A, OncotypeDX >25, or Stage III. Not standard first-line for low-risk Luminal A.",
+        })
 
-    # ── Luminal B (HER2-) ──
+    # ── LUMINAL B (HER2-) ──────────────────────────────────────────────────────
     elif luminal_b_her2neg:
-        chemo = odx_high or high_risk or not odx_low
+        chemo_needed = odx_high or high_risk or (not odx_low and ki67 >= 20)
+        # PATH 1
         protocols.append({
             "rank": 1,
-            "protocol_name": "Adjuvant Chemotherapy + Endocrine Therapy" if chemo else "Endocrine Therapy Alone",
-            "guideline_source": "NCCN",
-            "confidence_score": 0.88 if chemo else 0.80,
-            "treatment_components": (["Neoadjuvant Chemotherapy", "Endocrine Therapy"] if chemo
-                                     else ["Endocrine Therapy"]),
-            "drug_names": (["AC-T (doxorubicin + cyclophosphamide → paclitaxel)", "Tamoxifen / AI"]
-                           if chemo else ["Tamoxifen / Letrozole"]),
-            "duration_months": "18–36" if chemo else "60",
-            "rule_trace": ([{"biomarker": "OncotypeDX", "value": str(c.oncotype_dx_score), "implication": "High score → chemo recommended"}]
-                           if odx_high else []),
-            "clinical_notes": ("High Ki-67 or Oncotype score warrants adjuvant chemotherapy before initiating long-term endocrine blockade."
-                               if chemo else "Endocrine-only where genomic risk is low."),
+            "protocol_name": "Adjuvant Chemotherapy + Endocrine Therapy" if chemo_needed else "Endocrine Therapy ± CDK4/6 Inhibitor",
+            "guideline_source": "NCCN 2024",
+            "confidence_score": 0.89 if chemo_needed else 0.83,
+            "treatment_components": (["Neoadjuvant/Adjuvant Chemotherapy", "Endocrine Therapy"] if chemo_needed else ["Endocrine Therapy", "CDK4/6 Inhibition"]),
+            "drug_names": (["AC-T (Doxorubicin + Cyclophosphamide -> Paclitaxel)", endocrine_drug] if chemo_needed else ["Palbociclib / Ribociclib", endocrine_drug]),
+            "duration_months": "18–36 (chemo) + 60 (ET)" if chemo_needed else "24–36 (CDK4/6) + 60 (ET)",
+            "rule_trace": [
+                {"biomarker": "Ki-67", "value": f"{ki67}%", "implication": f"{'High proliferation (≥20%) → chemotherapy indicated' if ki67 >= 20 else 'Intermediate Ki-67 — genomic assay guides decision'}"},
+                {"biomarker": "OncotypeDX", "value": str(c.oncotype_dx_score or "Not tested"),
+                 "implication": "Score >25 → chemotherapy benefit (TAILORx); Score ≤25 → endocrine sufficient"},
+                {"biomarker": "Stage", "value": f"Stage {c.stage}, Grade {c.grade}",
+                 "implication": f"{'High-stage: chemotherapy escalation appropriate' if high_risk else 'Lower-risk: de-escalation to endocrine ± CDK4/6 preferred'}"},
+            ],
+            "clinical_notes": f"{'Chemotherapy recommended: Ki-67 ≥20% or high-risk features. AC-T preferred regimen (EBCTCG meta-analysis).' if chemo_needed else 'Endocrine ± CDK4/6 inhibitor for intermediate-risk Luminal B. Avoids cytotoxic toxicity where genomic risk is low.'}",
         })
-        if parp_flag:
-            protocols.append({
-                "rank": 2,
-                "protocol_name": "Endocrine + CDK4/6 Inhibitor",
-                "guideline_source": "NCCN",
-                "confidence_score": 0.85,
-                "treatment_components": ["CDK4/6 Inhibition", "Endocrine Therapy"],
-                "drug_names": ["Palbociclib", "Letrozole"],
-                "duration_months": "24–36",
-                "rule_trace": [{"biomarker": "Cyclin D1", "value": "Amplified", "implication": "CDK4/6 add-on eligible"}],
-                "clinical_notes": "Consider for metastatic / high-risk adjuvant setting.",
-            })
+        # PATH 2 — CDK4/6 inhibitor escalation
+        protocols.append({
+            "rank": 2,
+            "protocol_name": "Endocrine + CDK4/6 Inhibitor (Adjuvant Escalation)",
+            "guideline_source": "NCCN 2024 / monarchE",
+            "confidence_score": 0.85 if node_positive else 0.73,
+            "treatment_components": ["CDK4/6 Inhibition", "Endocrine Therapy"],
+            "drug_names": ["Abemaciclib (200mg BD)", endocrine_drug],
+            "duration_months": "24 (Abemaciclib) + 60 (ET)",
+            "rule_trace": [
+                {"biomarker": "Node Status", "value": f"{'Positive' if node_positive else 'Negative'}", "implication": "monarchE trial: Abemaciclib reduces recurrence in node-positive HR+ HER2- (Ki-67 ≥20%)"},
+                {"biomarker": "Ki-67", "value": f"{ki67}%", "implication": f"{'≥20% — monarchE eligibility criteria met' if ki67 >= 20 else 'Below 20% — moderate CDK4/6 indication'}"},
+            ],
+            "clinical_notes": "monarchE (2021): Abemaciclib adjuvant significantly improves iDFS in high-risk HR+/HER2-/node-positive patients. Ki-67 ≥20% and ≥4 nodes = highest benefit subgroup.",
+        })
+        # PATH 3 — Dose-dense or neoadjuvant approach
+        protocols.append({
+            "rank": 3,
+            "protocol_name": "Neoadjuvant Chemotherapy → pCR-Guided Adjuvant",
+            "guideline_source": "ESMO 2023",
+            "confidence_score": 0.74 if high_risk else 0.60,
+            "treatment_components": ["Neoadjuvant Chemotherapy", "Surgical Re-evaluation", "Adjuvant Escalation"],
+            "drug_names": ["ddAC (dose-dense doxorubicin + cyclophosphamide)", "Paclitaxel weekly", "± Capecitabine (CREATE-X)"],
+            "duration_months": "6–8 (neoadj) + 6–8 (adj cap if residual)",
+            "rule_trace": [
+                {"biomarker": "Stage", "value": f"Stage {c.stage}", "implication": "Neoadjuvant preferred for Stage III or large T2 to downstage and assess pCR"},
+                {"biomarker": "Residual Disease", "value": "Post-neoadjuvant", "implication": "pCR → excellent prognosis. Residual disease → Capecitabine adjuvant (CREATE-X)"},
+            ],
+            "clinical_notes": "Neoadjuvant approach preferred for large tumours or node-positive to assess treatment response. Residual disease at surgery → escalate to adjuvant Capecitabine (CREATE-X trial, HR 0.58 DFS benefit).",
+        })
 
-    # ── Luminal B (HER2+) ──
+    # ── LUMINAL B (HER2+) ─────────────────────────────────────────────────────
     elif luminal_b_her2pos:
         protocols.append({
             "rank": 1,
             "protocol_name": "Dual HER2 Blockade + Chemotherapy + Endocrine Therapy",
-            "guideline_source": "NCCN",
-            "confidence_score": 0.91,
-            "treatment_components": ["Neoadjuvant Chemotherapy", "HER2-targeted Therapy", "Endocrine Therapy"],
-            "drug_names": ["Trastuzumab", "Pertuzumab", "Docetaxel", "Carboplatin", "Tamoxifen/AI"],
+            "guideline_source": "NCCN 2024",
+            "confidence_score": 0.93,
+            "treatment_components": ["Neoadjuvant Chemotherapy", "Dual HER2 Blockade", "Endocrine Therapy"],
+            "drug_names": ["Trastuzumab", "Pertuzumab", "Docetaxel", "Carboplatin", endocrine_drug],
             "duration_months": "18–24",
-            "rule_trace": [{"biomarker": "HER2", "value": "Positive", "implication": "Anti-HER2 therapy mandatory"},
-                           {"biomarker": "ER/PR", "value": "Positive", "implication": "Endocrine therapy added post-chemo"}],
-            "clinical_notes": "TCHP regimen preferred. Complete NCCN HER2+ pathway. sequential endocrine therapy after chemotherapy.",
+            "rule_trace": [
+                {"biomarker": "HER2", "value": c.her2_status, "implication": "HER2 amplification — dual anti-HER2 blockade mandatory (NeoSphere/TRYPHAENA)"},
+                {"biomarker": "ER/PR", "value": f"{c.er_status}/{c.pr_status}", "implication": "Hormone receptor positivity — endocrine therapy added sequentially post-chemotherapy"},
+                {"biomarker": "Stage", "value": f"Stage {c.stage}", "implication": "Neoadjuvant TCHP preferred for operable disease to achieve pCR"},
+            ],
+            "clinical_notes": "TCHP regimen (TRYPHAENA). Dual HER2 blockade is NCCN Category 1. Apply endocrine therapy after completion of chemotherapy. pCR at surgery guides adjuvant selection.",
         })
         protocols.append({
             "rank": 2,
-            "protocol_name": "Neoadjuvant T-DM1 (Residual Disease)",
-            "guideline_source": "ISMPO",
-            "confidence_score": 0.77,
-            "treatment_components": ["Antibody-Drug Conjugate"],
-            "drug_names": ["T-DM1 (Trastuzumab emtansine)"],
-            "duration_months": "14",
-            "rule_trace": [{"biomarker": "HER2", "value": "Positive", "implication": "ADC for residual disease after neoadjuvant"}],
-            "clinical_notes": "Use T-DM1 for patients with residual invasive disease post-neoadjuvant chemotherapy per KATHERINE trial.",
+            "protocol_name": "T-DM1 Adjuvant (Residual Disease Post-Neoadjuvant)",
+            "guideline_source": "NCCN 2024 / KATHERINE",
+            "confidence_score": 0.89,
+            "treatment_components": ["Antibody-Drug Conjugate", "Endocrine Therapy"],
+            "drug_names": ["T-DM1 (Trastuzumab emtansine 3.6 mg/kg q3w)", endocrine_drug],
+            "duration_months": "14 (T-DM1) + concurrent ET",
+            "rule_trace": [
+                {"biomarker": "pCR Status", "value": "Residual Disease", "implication": "KATHERINE trial: T-DM1 reduces recurrence by 50% vs Trastuzumab in HER2+ residual disease (HR 0.50)"},
+            ],
+            "clinical_notes": "KATHERINE trial (2019): T-DM1 is standard for HER2+/HR+ patients not achieving pCR after neoadjuvant TCHP. 11.3% absolute iDFS improvement at 3 years.",
+        })
+        protocols.append({
+            "rank": 3,
+            "protocol_name": "Tucatinib + Trastuzumab + Capecitabine ± Endocrine Therapy",
+            "guideline_source": "NCCN 2024 / HER2CLIMB",
+            "confidence_score": 0.74,
+            "treatment_components": ["TKI Therapy", "Anti-HER2 mAb", "Oral Chemotherapy", "Endocrine Therapy"],
+            "drug_names": ["Tucatinib 300mg BD", "Trastuzumab", "Capecitabine", endocrine_drug],
+            "duration_months": "Until progression",
+            "rule_trace": [
+                {"biomarker": "HER2", "value": c.her2_status, "implication": "HER2CLIMB regimen: preferred for trastuzumab/T-DM1-pretreated HER2+ disease, including CNS metastases"},
+            ],
+            "clinical_notes": "HER2CLIMB trial: 34% OS improvement over placebo arm. Use in 2nd-3rd line after Trastuzumab + Pertuzumab and T-DM1. CNS penetration advantage for brain-metastatic disease.",
         })
 
-    # ── HER2-Enriched ──
+    # ── HER2-ENRICHED ─────────────────────────────────────────────────────────
     elif her2_enriched:
         protocols.append({
             "rank": 1,
-            "protocol_name": "Anti-HER2 Dual Blockade + Chemotherapy",
-            "guideline_source": "NCCN",
-            "confidence_score": 0.93,
-            "treatment_components": ["Neoadjuvant Chemotherapy", "HER2-targeted Therapy"],
-            "drug_names": ["Trastuzumab", "Pertuzumab", "Paclitaxel", "Carboplatin"],
+            "protocol_name": "TCHP (Anti-HER2 Dual Blockade + Chemotherapy)",
+            "guideline_source": "NCCN 2024",
+            "confidence_score": 0.94,
+            "treatment_components": ["Neoadjuvant Chemotherapy", "Dual HER2 Blockade"],
+            "drug_names": ["Trastuzumab 6mg/kg", "Pertuzumab 420mg", "Docetaxel 75mg/m²", "Carboplatin AUC6"],
             "duration_months": "18",
-            "rule_trace": [{"biomarker": "HER2", "value": "Positive", "implication": "HER2-targeted therapy mandatory"},
-                           {"biomarker": "ER/PR", "value": "Negative", "implication": "No endocrine therapy required"}],
-            "clinical_notes": "TCHP or THP regimen. Evaluate pCR at surgery to guide adjuvant therapy selection.",
+            "rule_trace": [
+                {"biomarker": "HER2", "value": c.her2_status, "implication": "HER2 overexpression — TCHP mandatory; pCR rate 45-67% (NeoSphere/TRYPHAENA)"},
+                {"biomarker": "ER/PR", "value": "Negative", "implication": "Hormone-receptor negative — endocrine therapy not required"},
+            ],
+            "clinical_notes": "TCHP is NCCN Category 1 for HER2-Enriched. pCR at surgery → continue trastuzumab (1 yr). Residual disease → T-DM1 (KATHERINE). Cardiac monitoring every 3 months.",
         })
         protocols.append({
             "rank": 2,
-            "protocol_name": "Tucatinib + Trastuzumab + Capecitabine",
-            "guideline_source": "NCCN",
-            "confidence_score": 0.80,
-            "treatment_components": ["Tyrosine Kinase Inhibitor", "HER2-targeted Therapy", "Oral Chemotherapy"],
-            "drug_names": ["Tucatinib", "Trastuzumab", "Capecitabine"],
-            "duration_months": "12–18",
-            "rule_trace": [{"biomarker": "HER2", "value": "Positive", "implication": "HER2CLIMB regimen for refractory/metastatic"}],
-            "clinical_notes": "HER2CLIMB regimen; preferred option for CNS involvement or multi-line progression.",
+            "protocol_name": "T-DM1 Adjuvant (If Residual Disease)",
+            "guideline_source": "NCCN 2024 / KATHERINE",
+            "confidence_score": 0.88,
+            "treatment_components": ["Antibody-Drug Conjugate"],
+            "drug_names": ["T-DM1 (Trastuzumab emtansine) 3.6 mg/kg q3w"],
+            "duration_months": "14",
+            "rule_trace": [
+                {"biomarker": "Residual Disease", "value": "Post-TCHP", "implication": "KATHERINE: T-DM1 vs Trastuzumab in HER2+ residual — 50% recurrence reduction"},
+            ],
+            "clinical_notes": "Switch to T-DM1 for HER2+ patients with residual invasive disease after neoadjuvant TCHP. Do NOT use T-DM1 concurrently with Pertuzumab.",
+        })
+        protocols.append({
+            "rank": 3,
+            "protocol_name": "THP (Carboplatin-Free) + Adjuvant Trastuzumab Deruxtecan",
+            "guideline_source": "NCCN 2024 / DESTINY-Breast06",
+            "confidence_score": 0.69,
+            "treatment_components": ["HER2-targeted Therapy", "ADC"],
+            "drug_names": ["THP (Taxane + Herceptin + Pertuzumab)", "T-DXd (Trastuzumab deruxtecan 5.4mg/kg)"],
+            "duration_months": "18 (THP) → T-DXd if progression",
+            "rule_trace": [
+                {"biomarker": "HER2", "value": c.her2_status, "implication": "T-DXd (DESTINY-Breast06): superior PFS in HER2+ vs standard chemotherapy"},
+                {"biomarker": "Renal Function", "value": "Consider if Carboplatin contraindicated", "implication": "THP (without Carboplatin) for renal impairment or toxicity concerns"},
+            ],
+            "clinical_notes": "T-DXd is emerging as post-TCHP standard (DESTINY-Breast03: 72.8% response rate). Reserve carboplatin-free THP for impaired renal function.",
         })
 
-    # ── Triple-Negative ──
+    # ── TRIPLE-NEGATIVE ────────────────────────────────────────────────────────
     elif tnbc:
-        pdl1_pos = any(f["source"] == "PD-L1" for f in immune_flags)
         protocols.append({
             "rank": 1,
-            "protocol_name": "Neoadjuvant Chemotherapy" + (" + Pembrolizumab" if pdl1_pos else ""),
-            "guideline_source": "NCCN",
-            "confidence_score": 0.90 if pdl1_pos else 0.86,
-            "treatment_components": ["Anthracycline Chemotherapy", "Taxane"] + (["Checkpoint Inhibitor"] if pdl1_pos else []),
-            "drug_names": ["Doxorubicin", "Cyclophosphamide", "Paclitaxel"]
-                          + (["Pembrolizumab"] if pdl1_pos else []),
+            "protocol_name": f"Neoadjuvant AC-T {'+ Pembrolizumab' if pdl1_pos else '(Standard)'}",
+            "guideline_source": "NCCN 2024 / KEYNOTE-522",
+            "confidence_score": 0.92 if pdl1_pos else 0.87,
+            "treatment_components": ["Anthracycline Chemotherapy", "Taxane"] + (["PD-1 Checkpoint Inhibitor"] if pdl1_pos else []),
+            "drug_names": ["Doxorubicin 60mg/m²", "Cyclophosphamide 600mg/m²", "Paclitaxel 80mg/m² weekly"] + (["Pembrolizumab 200mg q3w"] if pdl1_pos else []),
             "duration_months": "6–9",
-            "rule_trace": [{"biomarker": "ER/PR/HER2", "value": "All Negative", "implication": "Triple-Negative — aggressive neoadjuvant required"},
-                           *([{"biomarker": "PD-L1", "value": c.pdl1_status, "implication": "Pembrolizumab add-on (KEYNOTE-522)"}] if pdl1_pos else [])],
-            "clinical_notes": "AC-T ± Pembrolizumab per KEYNOTE-522 for PD-L1+ early TNBC. Evaluate for BRCA pCR pathway.",
+            "rule_trace": [
+                {"biomarker": "ER/PR/HER2", "value": "All Negative", "implication": "TNBC — aggressive neoadjuvant chemotherapy is standard regardless of PD-L1 status"},
+                *([ {"biomarker": "PD-L1", "value": c.pdl1_status, "implication": "KEYNOTE-522: Pembrolizumab + AC-T improves pCR by 13.6% and EFS by 37%"} ] if pdl1_pos else
+                  [ {"biomarker": "PD-L1", "value": "Negative/Unknown", "implication": "KEYNOTE-522: Even PD-L1 negative TNBC patients showed EFS benefit from Pembrolizumab addition"} ]),
+                {"biomarker": "BRCA", "value": f"{c.brca1_status}/{c.brca2_status}", "implication": f"{'BRCA mutation: add platinum sensitivity consideration to neoadjuvant' if brca_positive else 'BRCA wild-type: standard AC-T preferred'}"},
+            ],
+            "clinical_notes": f"{'KEYNOTE-522: FDA-approved Pembrolizumab + chemotherapy for high-risk early TNBC. EFS HR 0.63.' if pdl1_pos else 'Standard AC-T for early TNBC. Assess pCR at surgery — pCR = excellent prognosis. Residual disease → escalate adjuvant.'}",
         })
+        # PATH 2 — PARP inhibitor (BRCA+) or Sacituzumab (BRCA-)
         if brca_positive:
             protocols.append({
                 "rank": 2,
-                "protocol_name": "PARP Inhibitor Maintenance",
-                "guideline_source": "St. Gallen",
-                "confidence_score": 0.88,
+                "protocol_name": "PARP Inhibitor Maintenance (Post-Chemotherapy)",
+                "guideline_source": "NCCN 2024 / OlympiA",
+                "confidence_score": 0.91,
                 "treatment_components": ["PARP Inhibition"],
-                "drug_names": ["Olaparib", "Talazoparib"],
+                "drug_names": ["Olaparib 300mg BD (1yr adjuvant)", "Alt: Talazoparib 1mg OD"],
                 "duration_months": "12",
-                "rule_trace": [{"biomarker": "BRCA1/2", "value": "Mutation Detected", "implication": "PARP inhibitor eligibility confirmed (OlympiAD/EMBRACA)"}],
-                "clinical_notes": "PARP inhibitor maintenance post-chemotherapy for gBRCA-mutated HER2-negative MBC.",
+                "rule_trace": [
+                    {"biomarker": "BRCA1/2", "value": "Germline Mutation Detected", "implication": "OlympiA (2021): Olaparib adjuvant — 42% reduction in distant recurrence risk (HR 0.57) in gBRCA HER2- high-risk"},
+                ],
+                "clinical_notes": "OlympiA trial (NEJM 2021): Adjuvant Olaparib 1yr after (neo)adjuvant chemotherapy for gBRCA1/2 HER2- high-risk patients. 7.4% absolute invasive DFS benefit at 4 years.",
             })
-        if node_positive or high_stage:
+        else:
             protocols.append({
-                "rank": 3 if brca_positive else 2,
-                "protocol_name": "Capecitabine Adjuvant (Residual Disease)",
-                "guideline_source": "St. Gallen",
-                "confidence_score": 0.81,
-                "treatment_components": ["Oral Fluoropyrimidine"],
-                "drug_names": ["Capecitabine"],
-                "duration_months": "6–8",
-                "rule_trace": [{"biomarker": "Residual Disease", "value": "Node Positive", "implication": "CREATE-X trial — adjuvant cape improves DFS"}],
-                "clinical_notes": "Post-neoadjuvant adjuvant capecitabine for residual TNBC per CREATE-X.",
+                "rank": 2,
+                "protocol_name": "Sacituzumab Govitecan (Metastatic / Refractory TNBC)",
+                "guideline_source": "NCCN 2024 / ASCENT",
+                "confidence_score": 0.82,
+                "treatment_components": ["Antibody-Drug Conjugate (Trop-2 directed)"],
+                "drug_names": ["Sacituzumab govitecan 10mg/kg (d1,d8 q3w)"],
+                "duration_months": "Until progression",
+                "rule_trace": [
+                    {"biomarker": "Trop-2", "value": "Highly expressed in TNBC", "implication": "ASCENT: Sacituzumab govitecan vs chemotherapy — median PFS 5.6 vs 1.7 months in pretreated TNBC"},
+                ],
+                "clinical_notes": "ASCENT trial (NEJM 2021): Sacituzumab govitecan is preferred 2nd-line+ TNBC after taxane/platinum failure. TROP-2 directed ADC delivering SN-38 payload.",
             })
+        # PATH 3 — Escalation / Special populations
+        protocols.append({
+            "rank": 3,
+            "protocol_name": "Capecitabine Adjuvant (Residual Disease) ± Olaparib",
+            "guideline_source": "ESMO 2023 / CREATE-X",
+            "confidence_score": 0.83 if node_positive or high_stage else 0.70,
+            "treatment_components": ["Oral Fluoropyrimidine"] + (["PARP Inhibition"] if brca_positive else []),
+            "drug_names": ["Capecitabine 1000–1250 mg/m² BD (d1-14 q3w × 8 cycles)"] + (["+ Olaparib (OlympiA)" ] if brca_positive else []),
+            "duration_months": "6–8",
+            "rule_trace": [
+                {"biomarker": "Residual Disease", "value": f"{'Node Positive' if node_positive else 'Residual TNBC'}", "implication": "CREATE-X: Capecitabine adjuvant for residual disease — DFS HR 0.58, OS HR 0.52"},
+            ],
+            "clinical_notes": f"CREATE-X (NEJM 2017): Post-neoadjuvant Capecitabine significantly improves OS in TNBC with residual disease. {'BRCA mutation present: combine with Olaparib if OlympiA criteria met.' if brca_positive else 'BRCA negative: Capecitabine monotherapy as per CREATE-X.'}",
+        })
 
     return protocols
+
 
 
 # ─── STAGE 5: Contraindication checks ────────────────────────────────────────

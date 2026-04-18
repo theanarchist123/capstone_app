@@ -2,14 +2,26 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity, ArrowRight, ArrowLeft, Stethoscope, UserRound } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 export default function SignupPage() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [role, setRole] = useState<"doctor" | "patient" | null>(null);
+
+  // Form states
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [hospital, setHospital] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleNext = () => {
     if (role) setStep(2);
@@ -17,6 +29,31 @@ export default function SignupPage() {
 
   const handleBack = () => {
     setStep(1);
+    setError("");
+  };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const payload = {
+        name: `${firstName} ${lastName}`.trim(),
+        email,
+        password,
+        role: role || "doctor",
+        hospital: role === "doctor" ? hospital : undefined,
+      };
+      const res = await api.register(payload);
+      if (res.success) {
+        router.push("/login?registered=true");
+      }
+    } catch (err: any) {
+      console.error("Signup failed:", err);
+      setError(err.message || "Registration failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -136,19 +173,21 @@ export default function SignupPage() {
                 <p className="text-muted-foreground">Let's set up your {role} credentials.</p>
               </div>
 
-              <form className="space-y-6">
+              <form className="space-y-6" onSubmit={handleSignup}>
                 <div className="grid grid-cols-2 gap-4">
-                  <Input type="text" label="First Name" required />
-                  <Input type="text" label="Last Name" required />
+                  <Input type="text" label="First Name" required value={firstName} onChange={e => setFirstName(e.target.value)} />
+                  <Input type="text" label="Last Name" required value={lastName} onChange={e => setLastName(e.target.value)} />
                 </div>
                 
-                <Input type="email" label="Email Address" required />
+                <Input type="email" label="Email Address" required value={email} onChange={e => setEmail(e.target.value)} />
                 
                 {role === "doctor" && (
-                   <Input type="text" label="Hospital / Affiliation" required />
+                   <Input type="text" label="Hospital / Affiliation" required value={hospital} onChange={e => setHospital(e.target.value)} />
                 )}
 
-                <Input type="password" label="Create Password" required />
+                <Input type="password" label="Create Password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} />
+
+                {error && <div className="text-rose-500 font-semibold text-sm">{error}</div>}
 
                 <div className="flex items-center text-sm mb-6">
                   <label className="flex items-start gap-3 cursor-pointer text-muted-foreground leading-snug">
@@ -157,11 +196,9 @@ export default function SignupPage() {
                   </label>
                 </div>
 
-                <Link href="/dashboard" className="block w-full">
-                  <Button type="button" className="w-full h-12 text-base" variant="teal">
-                    Create Account
-                  </Button>
-                </Link>
+                <Button type="submit" disabled={loading} className="w-full h-12 text-base" variant="teal">
+                  {loading ? "Creating..." : "Create Account"}
+                </Button>
               </form>
             </motion.div>
           )}

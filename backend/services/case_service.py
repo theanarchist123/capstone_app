@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.case import Case
@@ -29,7 +30,10 @@ async def list_cases(db: AsyncSession, doctor_id: uuid.UUID,
     col = getattr(Case, sort, Case.created_at)
     ord_col = col.desc() if order == "desc" else col.asc()
 
-    q = select(Case).where(Case.doctor_id == doctor_id, Case.is_deleted == False).order_by(ord_col)
+    q = (select(Case)
+         .options(selectinload(Case.clinical_data), selectinload(Case.results))
+         .where(Case.doctor_id == doctor_id, Case.is_deleted == False)
+         .order_by(ord_col))
     count_q = select(func.count()).select_from(Case).where(Case.doctor_id == doctor_id, Case.is_deleted == False)
 
     total = (await db.execute(count_q)).scalar_one()
@@ -38,7 +42,9 @@ async def list_cases(db: AsyncSession, doctor_id: uuid.UUID,
 
 
 async def get_case(db: AsyncSession, case_id: uuid.UUID, doctor_id: uuid.UUID) -> Case | None:
-    q = select(Case).where(Case.id == case_id, Case.doctor_id == doctor_id, Case.is_deleted == False)
+    q = (select(Case)
+         .options(selectinload(Case.clinical_data), selectinload(Case.results))
+         .where(Case.id == case_id, Case.doctor_id == doctor_id, Case.is_deleted == False))
     r = await db.execute(q)
     return r.scalar_one_or_none()
 

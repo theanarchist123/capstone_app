@@ -28,13 +28,17 @@ from engine.biomarker_algorithm import ClinicalInput, run_pipeline
 import models  # ensure all tables registered
 
 
+# asyncpg (PostgreSQL) needs cache settings; SQLite does not accept them
+_is_postgres = settings.database_url.startswith("postgresql")
+_connect_args = {
+    "prepared_statement_cache_size": 0,
+    "statement_cache_size": 0,
+} if _is_postgres else {}
+
 engine = create_async_engine(
-    settings.database_url, 
+    settings.database_url,
     echo=False,
-    connect_args={
-        "prepared_statement_cache_size": 0,
-        "statement_cache_size": 0,
-    },
+    connect_args=_connect_args,
 )
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -167,7 +171,7 @@ async def seed():
             created += 1
 
         await db.commit()
-        print(f"✅ Seeded {created} cases for {doctor.email}")
+        print(f"Success! Seeded {created} cases for {doctor.email}")
         print("   Login: seed.doctor@oncopilot.dev / SeedPass123!")
 
 

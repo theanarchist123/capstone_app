@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     # App
     app_env: str = "development"
     debug: bool = False
-    allowed_origins: str = "http://localhost:3002,http://localhost:3000"
+    allowed_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005"
+
+    # AI
+    ollama_api_key: str = ""
 
     # Rate limiting
     rate_limit_per_minute: int = 60

@@ -63,20 +63,8 @@ class CaseUpdate(BaseModel):
     tags: list[str] | None = None
 
 
-class CaseOut(BaseModel):
-    id: uuid.UUID
-    doctor_id: uuid.UUID
-    patient_name: str | None
-    patient_age: int | None
-    status: str
-    tags: list[str] | None
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-# ─── Clinical Data ────────────────────────────────────────────────────────────
+# ─── Clinical Data ─────────────────────────────────────────────────────────
+# Defined BEFORE CaseOut so CaseOut can reference them without forward refs
 class ClinicalDataCreate(BaseModel):
     tumour_size: float | None = None
     stage: str | None = None
@@ -116,6 +104,38 @@ class ClinicalDataOut(ClinicalDataCreate):
     id: uuid.UUID
     case_id: uuid.UUID
     updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ─── Result Summary (embedded in CaseOut) ────────────────────────────────────
+class ResultSummary(BaseModel):
+    """Lightweight result embedded in CaseOut to avoid lazy-load serialization issues."""
+    id: uuid.UUID
+    version: int
+    molecular_subtype: str | None
+    subtype_confidence: float | None
+    recommendations: Any | None
+    alerts: Any | None
+    rule_trace: Any | None
+    is_simulation: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ─── CaseOut ─────────────────────────────────────────────────────────────────
+class CaseOut(BaseModel):
+    id: uuid.UUID
+    doctor_id: uuid.UUID
+    patient_name: str | None
+    patient_age: int | None
+    status: str
+    tags: list[str] | None
+    created_at: datetime
+    updated_at: datetime
+    clinical_data: ClinicalDataOut | None = None
+    results: list[ResultSummary] | None = None
 
     model_config = {"from_attributes": True}
 

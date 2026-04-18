@@ -13,6 +13,8 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { useAnalysisResultStore } from "@/store";
 
 // ─── Reusable Pill Toggle Group ──────────────────────────────────────────────
 const PillToggle = ({ options, value, onChange }: { options: string[], value: string, onChange: (v: string) => void }) => (
@@ -35,16 +37,20 @@ const PillToggle = ({ options, value, onChange }: { options: string[], value: st
     </div>
 );
 
+
+
 // ─── Main Form Page ──────────────────────────────────────────────────────────
 export default function NewCaseForm() {
     const router = useRouter();
+    const setAnalysisResult = useAnalysisResultStore((s) => s.setResult);
     const [step, setStep] = useState(1);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [loadingStage, setLoadingStage] = useState(0);
+    const [error, setError] = useState<string | null>(null);
 
     // Form State (simplified for UI demo)
     const [patient, setPatient] = useState({ name: "", age: 50, sex: "Female", notes: "" });
-    const [tumour, setTumour] = useState({ stage: "II", grade: 2, size: 2.5, nodes: false });
+    const [tumour, setTumour] = useState({ stage: "II", grade: 2, size: 2.5, nodes: false, nodeCount: 0 });
     const [biomarkers, setBiomarkers] = useState({
         er: "Unknown", pr: "Unknown", her2: "Unknown", ki67: 15,
         brca1: "Unknown", brca2: "Unknown", tils: 10, oncotype: 15, mammaprint: "Not Done"
@@ -58,20 +64,74 @@ export default function NewCaseForm() {
 
     const handleSubmit = async () => {
         setIsSubmitting(true);
+        setError(null);
+
+        // CRITICAL: Clear old persisted result so stale data never shows
+        useAnalysisResultStore.getState().clearResult();
+
+        const payload = {
+            patient_name: patient.name || undefined,
+            patient_age: patient.age || undefined,
+            clinical_data: {
+                stage: tumour.stage,
+                grade: tumour.grade,
+                tumour_size: tumour.size,
+                lymph_nodes_involved: tumour.nodes,
+                lymph_node_count: tumour.nodes ? tumour.nodeCount : 0,
+                er_status: biomarkers.er,
+                pr_status: biomarkers.pr,
+                her2_status: biomarkers.her2,
+                ki67_percent: biomarkers.ki67,
+                brca1_status: biomarkers.brca1,
+                brca2_status: biomarkers.brca2,
+                tils_percent: biomarkers.tils,
+                oncotype_dx_score: biomarkers.oncotype,
+                mammaprint: biomarkers.mammaprint === "Not Done" ? null : biomarkers.mammaprint,
+                lvef_percent: health.lvef,
+                comorbidities: health.comorbidities.reduce((a: any, c) => ({ ...a, [c]: true }), {}),
+                medications: health.medications.join(", "),
+            },
+        };
+
+        // Debug: confirm exact values being sent
+        console.log("[OncoPilot] Submitting analysis payload:", JSON.stringify(payload, null, 2));
+
         const stages = [
             "Classifying molecular subtype...",
             "Running guideline evaluation engine...",
             "Checking algorithmic contraindications...",
-            "Generating clinical recommendations..."
+            "Generating AI clinical recommendations...",
         ];
-        
-        for (let i = 0; i < stages.length; i++) {
-            setLoadingStage(i);
-            await new Promise(r => setTimeout(r, 1200));
+
+        const animateStages = async () => {
+            for (let i = 0; i < stages.length; i++) {
+                setLoadingStage(i);
+                await new Promise(r => setTimeout(r, 1100));
+            }
+        };
+
+        try {
+            const [, result] = await Promise.all([
+                animateStages(),
+                api.instantAnalysis(payload),
+            ]);
+
+            console.log("[OncoPilot] Analysis result:", result.molecular_subtype, `(${Math.round(result.subtype_confidence * 100)}%)`, `${result.recommendations?.length} paths`);
+
+            setAnalysisResult({
+                ...result,
+                analyzed_at: new Date().toISOString(),
+            });
+
+            router.push("/dashboard/results");
+        } catch (err: any) {
+            console.error("[OncoPilot] Analysis failed:", err);
+            setError(err.message || "Analysis failed — please check your connection and try again.");
+            setIsSubmitting(false);
         }
-        
-        router.push("/dashboard/cases/c002"); // Redirect to mock case
     };
+
+
 
     // ─── Step 1: Patient ──────────────────────────────────────────────────
     const renderStep1 = () => (
@@ -376,14 +436,30 @@ export default function NewCaseForm() {
                      </div>
                      <div className="space-y-3">
                          <h3 className="text-2xl font-bold text-white">Generating Treatment Protocol</h3>
+                         <p className="text-xs text-slate-500">Powered by clinical AI + Ollama LLM</p>
                          <div className="h-8 max-w-sm mx-auto flex items-center justify-center bg-slate-900 rounded-full px-6 border border-slate-800">
                              <AnimatePresence mode="wait">
                                  <motion.span key={loadingStage} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="text-[#0891B2] text-sm font-mono">
-                                     {loadingStage === 0 ? "Classifying molecular subtype..." : loadingStage === 1 ? "Running guideline evaluation engine..." : loadingStage === 2 ? "Checking algorithmic contraindications..." : "Generating clinical recommendations..."}
+                                     {["Classifying molecular subtype...", "Running guideline evaluation engine...", "Checking algorithmic contraindications...", "Generating AI clinical recommendations..."][loadingStage]}
                                  </motion.span>
                              </AnimatePresence>
                          </div>
                      </div>
+                </div>
+            );
+        }
+
+        if (error) {
+            return (
+                <div className="flex flex-col items-center justify-center p-20 text-center space-y-6">
+                    <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center">
+                        <ShieldAlert className="w-8 h-8 text-rose-500" />
+                    </div>
+                    <div>
+                        <h3 className="text-xl font-bold text-white mb-2">Analysis Failed</h3>
+                        <p className="text-slate-400 text-sm max-w-md">{error}</p>
+                    </div>
+                    <Button variant="teal" onClick={() => setError(null)}>Try Again</Button>
                 </div>
             );
         }

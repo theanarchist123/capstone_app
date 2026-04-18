@@ -57,46 +57,83 @@ export const useCasesStore = create<CasesState>()((set) => ({
     set({ isLoading: true });
     try {
       const res = await api.getCases();
-      const mappedCases = (res.data || []).map((c: any) => ({
-        ...c,
-        id: c.id,
-        patientName: c.patient_name || c.patientName || "Unknown Patient",
-        patientAge: c.patient_age || c.patientAge || 0,
-        patientSex: c.patient_sex || c.patientSex || "Female",
-        status: (c.status || "Pending Review").replace(/_/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase()),
-        subtype: c.subtype || "Unknown",
-        createdAt: c.created_at || c.createdAt || new Date().toISOString(),
-        updatedAt: c.updated_at || c.updatedAt || new Date().toISOString(),
-        doctorId: c.doctor_id || c.doctorId,
-        tumour: c.tumour || { 
-          stage: c.clinical_data?.stage || "Unknown", 
-          grade: c.clinical_data?.grade || 2 
-        },
-        biomarkers: c.biomarkers || {
-          er: c.clinical_data?.er_status || "Unknown",
-          pr: c.clinical_data?.pr_status || "Unknown",
-          her2: c.clinical_data?.her2_status || "Unknown",
-          ki67: c.clinical_data?.ki67_percent,
-          pdl1: c.clinical_data?.pdl1_status || "Unknown",
-          brca1: c.clinical_data?.brca1_status || "Unknown",
-          brca2: c.clinical_data?.brca2_status || "Unknown",
-          pik3ca: c.clinical_data?.pik3ca_status || "Unknown",
-          cyclinD1: c.clinical_data?.cyclin_d1 || "Unknown",
-          tp53: c.clinical_data?.tp53_status || "Unknown",
-          top2a: c.clinical_data?.top2a || "Unknown",
-          bcl2: c.clinical_data?.bcl2 || "Unknown",
-          tils: c.clinical_data?.tils_percent,
-          oncotypeDX: c.clinical_data?.oncotype_dx_score,
-        },
-        healthProfile: c.healthProfile || {
-          lvef: c.clinical_data?.lvef_percent,
-          menopausalStatus: c.clinical_data?.menopausal_status || "Unknown",
-          performanceScore: c.clinical_data?.ecog_score,
-          comorbidities: [],
-          medications: [],
-          allergies: [],
-        }
-      }));
+      const mappedCases = (res.data || []).map((c: any) => {
+        // Find latest non-simulation result
+        const latestResult = (c.results || []).sort((a: any, b: any) => b.version - a.version)[0];
+        
+        return {
+          ...c,
+          id: c.id,
+          patientName: c.patient_name || c.patientName || "Unknown Patient",
+          patientAge: c.patient_age || c.patientAge || 0,
+          patientSex: c.patient_sex || c.patientSex || "Female",
+          status: (c.status || "Pending Review").replace(/_/g, " ").replace(/\b\w/g, (char: string) => char.toUpperCase()),
+          subtype: latestResult?.molecular_subtype || c.subtype || "Unknown",
+          createdAt: c.created_at || c.createdAt || new Date().toISOString(),
+          updatedAt: c.updated_at || c.updatedAt || new Date().toISOString(),
+          doctorId: c.doctor_id || c.doctorId,
+          tumour: c.tumour || { 
+            stage: c.clinical_data?.stage || "Unknown", 
+            grade: c.clinical_data?.grade || 2 
+          },
+          biomarkers: c.biomarkers || {
+            er: c.clinical_data?.er_status || "Unknown",
+            pr: c.clinical_data?.pr_status || "Unknown",
+            her2: c.clinical_data?.her2_status || "Unknown",
+            ki67: c.clinical_data?.ki67_percent,
+            pdl1: c.clinical_data?.pdl1_status || "Unknown",
+            brca1: c.clinical_data?.brca1_status || "Unknown",
+            brca2: c.clinical_data?.brca2_status || "Unknown",
+            pik3ca: c.clinical_data?.pik3ca_status || "Unknown",
+            cyclinD1: c.clinical_data?.cyclin_d1 || "Unknown",
+            tp53: c.clinical_data?.tp53_status || "Unknown",
+            top2a: c.clinical_data?.top2a || "Unknown",
+            bcl2: c.clinical_data?.bcl2 || "Unknown",
+            tils: c.clinical_data?.tils_percent,
+            oncotypeDX: c.clinical_data?.oncotype_dx_score,
+            mammaPrint: c.clinical_data?.mammaprint || "Unknown",
+            pam50: c.clinical_data?.pam50 || "Unknown",
+          },
+          healthProfile: c.healthProfile || {
+            lvef: c.clinical_data?.lvef_percent,
+            menopausalStatus: c.clinical_data?.menopausal_status || "Unknown",
+            performanceScore: c.clinical_data?.ecog_score,
+            comorbidities: c.clinical_data?.comorbidities ? Object.keys(c.clinical_data.comorbidities) : [],
+            medications: c.clinical_data?.medications ? [c.clinical_data.medications] : [],
+            allergies: c.clinical_data?.allergies ? [c.clinical_data.allergies] : [],
+          },
+          recommendations: latestResult?.recommendations ? latestResult.recommendations.map((r: any, idx: number) => ({
+              id: `rec-${idx}`,
+              isTopRecommendation: r.rank === 1,
+              name: r.protocol_name || "Treatment Protocol",
+              description: r.clinical_notes || "",
+              guidelineSource: r.guideline_source || "AI Generated",
+              confidenceScore: Math.round((r.confidence_score || 0) * 100),
+              duration: r.duration_months ? `${r.duration_months} Months` : "Unknown",
+              ruleTrace: (r.rule_trace || []).map((tr: any, trIdx: number) => ({
+                  id: `tr-${idx}-${trIdx}`,
+                  label: tr.biomarker || tr.label || "Feature",
+                  value: tr.value,
+                  conclusion: tr.implication || tr.conclusion || "Matched"
+              }))
+          })) : undefined,
+          safetyAlerts: latestResult?.alerts ? latestResult.alerts.map((a: any, idx: number) => ({
+              id: `alert-${idx}`,
+              triggerSource: a.contraindication_type || a.source || "System Alert",
+              affectedTreatment: a.affected_drug || "Protocol",
+              description: a.reason || a.description || "Safety alert triggered.",
+              recommendedAction: a.action || a.recommendation || "Review required."
+          })) : undefined,
+          versions: (c.results || []).map((v: any) => ({
+              id: `v${v.version}`,
+              version: v.version,
+              createdAt: v.created_at || c.created_at,
+              doctorName: "AI Pipeline",
+              changeSummary: `Molecular classification: ${v.molecular_subtype} (Conf: ${Math.round((v.subtype_confidence || 0) * 100)}%)`,
+              snapshot: {}
+          }))
+        };
+      });
       set({ cases: mappedCases });
     } catch (e) {
       console.error("Failed to fetch cases:", e);
@@ -175,5 +212,45 @@ export const useUIStore = create<UIState>()(
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
     }),
     { name: "cancer-copilot-ui" }
+  )
+);
+
+// ─── Instant Analysis Result Store ───────────────────────────────────────────
+// Holds the result of the onboarding form submission so the results page
+// can display it without hitting the DB.
+
+export interface AnalysisResult {
+  molecular_subtype: string;
+  subtype_confidence: number;
+  recommendations: Array<Record<string, any>>;
+  alerts: Array<Record<string, any>>;
+  rule_trace: Array<Record<string, any>>;
+  ai_reasoning: {
+    subtype_rationale?: string;
+    treatment_rationale?: string;
+    key_biomarkers?: string[];
+    clinical_considerations?: string;
+    prognosis_summary?: string;
+    confidence_explanation?: string;
+  };
+  patient_name?: string;
+  patient_age?: number;
+  analyzed_at: string;
+}
+
+interface AnalysisResultState {
+  result: AnalysisResult | null;
+  setResult: (r: AnalysisResult) => void;
+  clearResult: () => void;
+}
+
+export const useAnalysisResultStore = create<AnalysisResultState>()(
+  persist(
+    (set) => ({
+      result: null,
+      setResult: (result) => set({ result }),
+      clearResult: () => set({ result: null }),
+    }),
+    { name: "cancer-copilot-analysis-result" }
   )
 );

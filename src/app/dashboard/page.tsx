@@ -49,11 +49,7 @@ const StatCard = ({ title, value, trend, icon: Icon, delay }: { title: string, v
 
 // ─── Main Dashboard Page ────────────────────────────────────────────────────
 export default function DashboardPage() {
-  const { cases, fetchCases, isLoading } = useCasesStore((s) => ({
-      cases: s.cases.length ? s.cases : mockCases,
-      fetchCases: s.fetchCases,
-      isLoading: s.isLoading
-  }));
+  const { cases, fetchCases, isLoading } = useCasesStore();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
 
@@ -183,12 +179,21 @@ export default function DashboardPage() {
          </AnimatePresence>
          {filteredCases.length === 0 && (
             <div className="py-20 flex flex-col items-center justify-center border-2 border-dashed border-white/5 rounded-3xl bg-slate-900/20">
-               <Folders className="w-12 h-12 text-slate-600 mb-4 opacity-50" />
-               <h3 className="text-xl font-medium text-slate-300 mb-2">No cases found</h3>
-               <p className="text-slate-500 mb-6">Create a new case consultation to begin clinical analysis.</p>
-               <Link href="/dashboard/cases/new">
-                  <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300">Start New Case</Button>
-               </Link>
+               {isLoading ? (
+                  <>
+                     <div className="w-12 h-12 border-4 border-[#0891B2] border-t-transparent rounded-full animate-spin mb-4" />
+                     <h3 className="text-xl font-medium text-slate-300 mb-2">Loading your clinical cases...</h3>
+                  </>
+               ) : (
+                  <>
+                     <Folders className="w-12 h-12 text-slate-600 mb-4 opacity-50" />
+                     <h3 className="text-xl font-medium text-slate-300 mb-2">No cases found</h3>
+                     <p className="text-slate-500 mb-6">Create a new case consultation to begin clinical analysis.</p>
+                     <Link href="/dashboard/cases/new">
+                        <Button variant="outline" className="border-slate-700 bg-slate-800 text-slate-300">Start New Case</Button>
+                     </Link>
+                  </>
+               )}
             </div>
          )}
       </div>
