@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -28,9 +29,19 @@ class Settings(BaseSettings):
 
     @property
     def origins_list(self) -> list[str]:
-        return [o.strip() for o in self.allowed_origins.split(",")]
+        origins: list[str] = []
+        for origin in self.allowed_origins.split(","):
+            normalized = origin.strip()
+            if not normalized:
+                continue
+            origins.append(normalized)
+            if "localhost" in normalized:
+                origins.append(normalized.replace("localhost", "127.0.0.1"))
+            elif "127.0.0.1" in normalized:
+                origins.append(normalized.replace("127.0.0.1", "localhost"))
+        return list(dict.fromkeys(origins))
 
-    model_config = {"env_file": ".env", "case_sensitive": False}
+    model_config = {"env_file": str(Path(__file__).resolve().parent.parent / ".env"), "case_sensitive": False}
 
 
 @lru_cache()

@@ -70,8 +70,9 @@ export default function NewCaseForm() {
         useAnalysisResultStore.getState().clearResult();
 
         const payload = {
-            patient_name: patient.name || undefined,
-            patient_age: patient.age || undefined,
+            patient_name: patient.name || "Unknown Patient",
+            patient_age: patient.age || 0,
+            save_case: true,
             clinical_data: {
                 stage: tumour.stage,
                 grade: tumour.grade,

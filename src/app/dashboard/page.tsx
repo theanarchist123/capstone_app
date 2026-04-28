@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
 import { useCasesStore } from "@/store";
-import { mockCases } from "@/lib/mock-data";
 import { getSubtypeBg, animateCounter, formatRelativeTime } from "@/lib/utils";
 import type { ClinicalCase } from "@/types";
 
@@ -126,7 +125,7 @@ export default function DashboardPage() {
                   {/* Left Color Bar */}
                   <div className={`absolute top-0 bottom-0 left-0 w-2 ${getSubtypeBg(c.subtype).split(' ')[1]}`} style={{ backgroundColor: getSubtypeBg(c.subtype).split(' ').find(cls => cls.startsWith('text-'))?.replace('text-', '') }} />
                   
-                  <Link href={`/dashboard/cases/${c.id}`} className="flex flex-col sm:flex-row items-center gap-4 p-5 pl-8 w-full block">
+                  <Link href={`/dashboard/results?caseId=${c.id}`} className="flex flex-col sm:flex-row items-center gap-4 p-5 pl-8 w-full block">
                      {/* Patient Info */}
                      <div className="flex items-center gap-4 min-w-[250px] w-full sm:w-auto">
                         <div className="w-12 h-12 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-white shadow-sm">

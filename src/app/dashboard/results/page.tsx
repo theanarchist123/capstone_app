@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
     Brain, ShieldAlert, TrendingUp, Pill, ChevronRight, ChevronDown,
     Activity, AlertCircle, CheckCircle2, ArrowLeft, Download,
@@ -10,6 +10,7 @@ import {
     BookOpen, FlaskConical, Zap, Star, TriangleAlert
 } from "lucide-react";
 import { useAnalysisResultStore } from "@/store";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
 // ─── Colour config per subtype ────────────────────────────────────────────────
@@ -232,12 +233,34 @@ function PathCard({ rec, rank, isExpanded, onToggle }: {
 export default function ResultsPage() {
     const router = useRouter();
     const result = useAnalysisResultStore((s) => s.result);
+    const setResult = useAnalysisResultStore((s) => s.setResult);
+    const search = useSearchParams();
+    const caseId = search?.get("caseId");
+    const [loadingAnalysis, setLoadingAnalysis] = useState(false);
     const [expandedPaths, setExpandedPaths] = useState<Record<number, boolean>>({ 0: true }); // first path open by default
     const [simulationOpen, setSimulationOpen] = useState(true);
 
-    if (!result) {
-        // Redirect to onboarding if no result
-        if (typeof window !== "undefined") router.replace("/dashboard/cases/new");
+    useEffect(() => {
+        if (!result && caseId) {
+            setLoadingAnalysis(true);
+            api.runAnalysis(caseId).then((res) => {
+                // backend already returns full analysis result shape expected by the UI
+                setResult({ ...res, analyzed_at: new Date().toISOString() });
+            }).catch((err) => {
+                console.error("Failed to load analysis for case", caseId, err);
+                // If analysis failed, fall back to case detail page
+                router.replace(`/dashboard/cases/${caseId}`);
+            }).finally(() => setLoadingAnalysis(false));
+        } else if (!result && !caseId) {
+            if (typeof window !== "undefined") router.replace("/dashboard/cases/new");
+        }
+    }, [caseId, result, setResult, router]);
+
+    if (!result && loadingAnalysis) {
+        return <div className="p-20 text-center">Loading AI report...</div>;
+    }
+
+    if (!result && !loadingAnalysis) {
         return null;
     }
 

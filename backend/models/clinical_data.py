@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -52,7 +52,7 @@ class ClinicalData(Base):
     lvef_percent: Mapped[float | None] = mapped_column(Float)
     menopausal_status: Mapped[str | None] = mapped_column(String(50))
     ecog_score: Mapped[int | None] = mapped_column(Integer)
-    comorbidities: Mapped[dict | None] = mapped_column(JSONB)
+    comorbidities: Mapped[dict | None] = mapped_column(JSON)
     medications: Mapped[str | None] = mapped_column(Text)
     allergies: Mapped[str | None] = mapped_column(Text)
 

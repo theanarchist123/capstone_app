@@ -284,11 +284,11 @@ python scripts/seed.py
 #### Start the Backend
 
 ```bash
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8001
 ```
 
-> 🟢 API is live at `http://localhost:8000`  
-> 📖 Interactive docs at `http://localhost:8000/docs`
+> 🟢 API is live at `http://localhost:8001`  
+> 📖 Interactive docs at `http://localhost:8001/docs`
 
 ---
 
@@ -310,7 +310,7 @@ cp .env.local.example .env.local       # macOS / Linux
 ```
 
 ```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8001/api
 ```
 
 #### Start the Frontend Dev Server

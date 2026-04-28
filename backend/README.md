@@ -176,15 +176,15 @@ python scripts/seed.py
 ### 5. Start server
 
 ```bash
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8001
 ```
 
 | Endpoint | URL |
 |----------|-----|
-| 🟢 API | `http://localhost:8000` |
-| 📖 Swagger UI | `http://localhost:8000/docs` |
-| 📘 ReDoc | `http://localhost:8000/redoc` |
-| 💓 Health | `http://localhost:8000/health` |
+| 🟢 API | `http://localhost:8001` |
+| 📖 Swagger UI | `http://localhost:8001/docs` |
+| 📘 ReDoc | `http://localhost:8001/redoc` |
+| 💓 Health | `http://localhost:8001/health` |
 
 ---
 

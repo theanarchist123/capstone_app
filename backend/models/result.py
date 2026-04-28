@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -20,9 +20,9 @@ class Result(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     molecular_subtype: Mapped[str | None]
     subtype_confidence: Mapped[float | None] = mapped_column(Float)
-    recommendations: Mapped[dict | None] = mapped_column(JSONB)
-    alerts: Mapped[dict | None] = mapped_column(JSONB)
-    rule_trace: Mapped[dict | None] = mapped_column(JSONB)
+    recommendations: Mapped[dict | None] = mapped_column(JSON)
+    alerts: Mapped[dict | None] = mapped_column(JSON)
+    rule_trace: Mapped[dict | None] = mapped_column(JSON)
     is_simulation: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

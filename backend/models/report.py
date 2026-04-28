@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, JSON, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -20,7 +20,7 @@ class Report(Base):
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_url: Mapped[str] = mapped_column(Text, nullable=False)
     file_type: Mapped[str] = mapped_column(String(50))  # pdf / docx / txt
-    extracted_raw: Mapped[dict | None] = mapped_column(JSONB)
+    extracted_raw: Mapped[dict | None] = mapped_column(JSON)
     extraction_confidence: Mapped[float | None] = mapped_column(Float)
     verified_by_doctor: Mapped[bool] = mapped_column(Boolean, default=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

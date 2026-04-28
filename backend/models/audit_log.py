@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.database import Base
@@ -19,7 +19,7 @@ class AuditLog(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     case_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("cases.id"))
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    details: Mapped[dict | None] = mapped_column(JSONB)
+    details: Mapped[dict | None] = mapped_column(JSON)
     ip_address: Mapped[str | None] = mapped_column(String(50))
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 

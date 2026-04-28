@@ -1,6 +1,12 @@
 import { ClinicalCase, User } from "@/types";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+const API_BASE_URL =
+  configuredApiBaseUrl &&
+  !configuredApiBaseUrl.includes("localhost:8000") &&
+  !configuredApiBaseUrl.includes("127.0.0.1:8000")
+    ? configuredApiBaseUrl
+    : "http://localhost:8001/api";
 
 // ─── Auth token reader ────────────────────────────────────────────────────────
 // Reads from Zustand-persisted localStorage. Tries both 'token' and
@@ -35,6 +41,12 @@ const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) => {
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("cancer-copilot-auth");
+        window.location.href = "/login";
+      }
+    }
     const errorData = await response.json().catch(() => null);
     throw new Error(
       errorData?.detail || errorData?.error || `API error ${response.status}`
@@ -83,9 +95,9 @@ export const api = {
   }),
 
   // Cases
-  getCases: () => fetchWithAuth("/cases"),
+  getCases: () => fetchWithAuth("/cases/"),
   getCase: (id: string) => fetchWithAuth(`/cases/${id}`),
-  createCase: (data: any) => fetchWithAuth("/cases", {
+  createCase: (data: any) => fetchWithAuth("/cases/", {
     method: "POST",
     body: JSON.stringify(data),
   }),
@@ -116,6 +128,7 @@ export const api = {
   instantAnalysis: (payload: {
     patient_name?: string;
     patient_age?: number;
+    save_case?: boolean;
     clinical_data: Record<string, any>;
   }) =>
     fetchPublic("/analyse/instant", {

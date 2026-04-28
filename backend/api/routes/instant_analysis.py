@@ -12,8 +12,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Optional
 
-from schemas import ClinicalDataCreate
-from engine.biomarker_algorithm import ClinicalInput, run_pipeline
+from schemas import ClinicalDataCreate, CaseCreate
+from core.database import get_db
+from engine.biomarker_algorithm import ClinicalInput, run_pipeline, PipelineResult
+from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
 from engine.ai_reasoning import enhance_with_ai, enhance_pathways_with_ai
 
 router = APIRouter(prefix="/api/analyse", tags=["instant-analysis"])
@@ -25,6 +28,7 @@ _optional_bearer = HTTPBearer(auto_error=False)
 class InstantAnalysisRequest(BaseModel):
     patient_name: Optional[str] = None
     patient_age: Optional[int] = None
+    save_case: bool = False
     clinical_data: ClinicalDataCreate
 
 
@@ -38,13 +42,15 @@ class InstantAnalysisResponse(BaseModel):
     ai_reasoning: dict[str, Any]
     patient_name: Optional[str] = None
     patient_age: Optional[int] = None
+    case_id: Optional[uuid.UUID] = None
 
 
 @router.post("/instant", response_model=InstantAnalysisResponse)
 async def instant_analysis(
     body: InstantAnalysisRequest,
-    # Optional auth — endpoint works even without a valid token
+    request: Request,
     _creds: Optional[HTTPAuthorizationCredentials] = Depends(_optional_bearer),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Run the full clinical intelligence pipeline on submitted form data.
@@ -100,6 +106,44 @@ async def instant_analysis(
         enhance_with_ai(clinical_input, pipeline_result),
     )
 
+    case_id_out = None
+    if body.save_case and _creds is not None:
+        try:
+            from core.security import decode_token
+            from sqlalchemy import select
+            from models.user import User
+            from services.case_service import create_case, save_clinical_data, save_result
+            
+            token = _creds.credentials
+            payload = decode_token(token)
+            doctor_id = uuid.UUID(payload["sub"])
+            
+            # Verify user
+            q = select(User).where(User.id == doctor_id)
+            user = (await db.execute(q)).scalar_one_or_none()
+            if user:
+                # 1. Create Case
+                case_body = CaseCreate(patient_name=body.patient_name, patient_age=body.patient_age, tags=["Instant Analysis"])
+                case = await create_case(db, user.id, case_body, request.client.host)
+                case_id_out = case.id
+                
+                # 2. Save Clinical Data
+                await save_clinical_data(db, case.id, cd.model_dump(exclude_none=True), user.id, request.client.host)
+                
+                # 3. Save AI-Enriched Result
+                sim_result = PipelineResult(
+                    molecular_subtype=pipeline_result.molecular_subtype,
+                    subtype_confidence=pipeline_result.subtype_confidence,
+                    recommendations=enriched_paths,
+                    alerts=pipeline_result.alerts,
+                    rule_trace=pipeline_result.rule_trace
+                )
+                await save_result(db, case.id, sim_result, is_simulation=False, doctor_id=user.id)
+                case.status = "under_analysis"
+                await db.commit()
+        except Exception as e:
+            print("Auto-save case failed:", e)
+
     return InstantAnalysisResponse(
         molecular_subtype=pipeline_result.molecular_subtype,
         subtype_confidence=pipeline_result.subtype_confidence,
@@ -109,4 +153,5 @@ async def instant_analysis(
         ai_reasoning=ai_reasoning,
         patient_name=body.patient_name,
         patient_age=body.patient_age,
+        case_id=case_id_out,
     )

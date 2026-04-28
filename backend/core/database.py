@@ -5,17 +5,23 @@ from sqlalchemy.orm import DeclarativeBase
 
 from core.config import settings
 
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    connect_args={
-        "prepared_statement_cache_size": 0,
-        "statement_cache_size": 0,
-    },
-)
+_is_postgres = settings.database_url.startswith("postgresql")
+
+_engine_kwargs = {"echo": settings.debug}
+if _is_postgres:
+    _engine_kwargs.update(
+        {
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True,
+            "connect_args": {
+                "prepared_statement_cache_size": 0,
+                "statement_cache_size": 0,
+            },
+        }
+    )
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

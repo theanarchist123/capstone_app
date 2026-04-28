@@ -15,7 +15,6 @@ spacy
 numpy
 pandas
 weasyprint
-supabase
 slowapi
 pytest
 pytest-asyncio
