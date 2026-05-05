@@ -3,6 +3,8 @@ from pydantic import model_validator
 from functools import lru_cache
 from pathlib import Path
 import os
+import shutil
+import sqlite3
 from sqlalchemy.engine import make_url
 
 
@@ -59,7 +61,32 @@ class Settings(BaseSettings):
         if self.database_url.startswith("sqlite") and (os.getenv("VERCEL") == "1" or self.app_env.lower() == "production"):
             parsed_url = make_url(self.database_url)
             database_name = Path(parsed_url.database or "capstone_app.db").name
-            parsed_url = parsed_url.set(database=f"/tmp/{database_name}")
+            runtime_db_path = Path(f"/tmp/{database_name}")
+            needs_seed = True
+            if runtime_db_path.exists():
+                try:
+                    with sqlite3.connect(runtime_db_path) as conn:
+                        row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
+                        needs_seed = (row is None) or int(row[0] or 0) == 0
+                except sqlite3.Error:
+                    needs_seed = True
+
+            if needs_seed:
+                bundled_sources = []
+                for candidate in [
+                    database_name,
+                    "oncopilot.db",
+                ]:
+                    bundled_sources.extend([
+                        Path(__file__).resolve().parent.parent / candidate,
+                        Path(__file__).resolve().parent.parent.parent / candidate,
+                    ])
+                for source in bundled_sources:
+                    if source.exists():
+                        runtime_db_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source, runtime_db_path)
+                        break
+            parsed_url = parsed_url.set(database=str(runtime_db_path))
             self.database_url = str(parsed_url)
 
         return self

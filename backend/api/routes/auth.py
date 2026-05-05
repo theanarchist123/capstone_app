@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -25,14 +25,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.post("/register", response_model=SuccessResponse, status_code=201)
 async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
+    normalized_email = body.email.strip().lower()
     # Check duplicate
-    existing = (await db.execute(select(User).where(User.email == body.email))).scalar_one_or_none()
+    existing = (
+        await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user = User(
         name=body.name,
-        email=body.email,
+        email=normalized_email,
         password_hash=hash_password(body.password),
         role=body.role,
         hospital=body.hospital,
@@ -47,7 +50,8 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=SuccessResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    q = select(User).where(User.email == body.email, User.is_active == True)
+    normalized_email = body.email.strip().lower()
+    q = select(User).where(func.lower(User.email) == normalized_email, User.is_active == True)
     user = (await db.execute(q)).scalar_one_or_none()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
