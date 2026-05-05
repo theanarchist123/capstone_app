@@ -73,6 +73,12 @@ const fetchWithAuth = async (endpoint: string, options: RequestInit = {}) =>
 const fetchPublic = async (endpoint: string, options: RequestInit = {}) =>
   requestJson(endpoint, options, false);
 
+const fetchPublicOrAuth = async (
+  endpoint: string,
+  options: RequestInit = {},
+  withAuth = false
+) => (withAuth ? fetchWithAuth(endpoint, options) : fetchPublic(endpoint, options));
+
 // ─── API surface ──────────────────────────────────────────────────────────────
 export const api = {
   // Health
@@ -124,9 +130,9 @@ export const api = {
     patient_age?: number;
     save_case?: boolean;
     clinical_data: Record<string, any>;
-  }) =>
-    fetchPublic("/analyse/instant", {
+  }, withAuth = false) =>
+    fetchPublicOrAuth("/analyse/instant", {
       method: "POST",
       body: JSON.stringify(payload),
-    }),
+    }, withAuth),
 };

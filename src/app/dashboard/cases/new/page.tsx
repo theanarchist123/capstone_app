@@ -114,7 +114,7 @@ export default function NewCaseForm() {
         try {
             const [, result] = await Promise.all([
                 animateStages(),
-                api.instantAnalysis(payload),
+                api.instantAnalysis(payload, true),
             ]);
 
             console.log("[OncoPilot] Analysis result:", result.molecular_subtype, `(${Math.round(result.subtype_confidence * 100)}%)`, `${result.recommendations?.length} paths`);
