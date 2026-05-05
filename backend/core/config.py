@@ -58,6 +58,10 @@ class Settings(BaseSettings):
         if not self.database_url:
             return self
 
+        if self.database_url.startswith("postgresql://") or self.database_url.startswith("postgres://"):
+            self.database_url = self.database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            self.database_url = self.database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+
         if self.database_url.startswith("sqlite") and (os.getenv("VERCEL") == "1" or self.app_env.lower() == "production"):
             parsed_url = make_url(self.database_url)
             database_name = Path(parsed_url.database or "capstone_app.db").name

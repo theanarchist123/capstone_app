@@ -1,6 +1,15 @@
 import { ClinicalCase, User } from "@/types";
 
-const API_BASE_URL = "/api";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+const fallbackApiBaseUrl =
+  process.env.NODE_ENV === "development"
+    ? "http://localhost:8001/api"
+    : "https://capstone-app-hqi3.vercel.app/api";
+
+const API_BASE_URL =
+  configuredApiBaseUrl && configuredApiBaseUrl !== "/api"
+    ? (configuredApiBaseUrl.endsWith("/api") ? configuredApiBaseUrl : `${configuredApiBaseUrl.replace(/\/$/, "")}/api`)
+    : fallbackApiBaseUrl;
 const API_BASE_URLS = [API_BASE_URL];
 
 // ─── Auth token reader ────────────────────────────────────────────────────────
