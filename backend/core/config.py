@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = False
     allowed_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3005"
+    cors_allowed_origin_regex: str = r"^https://.*\.vercel\.app$"
 
     # AI
     ollama_api_key: str = ""
@@ -43,6 +44,10 @@ class Settings(BaseSettings):
             elif "127.0.0.1" in normalized:
                 origins.append(normalized.replace("127.0.0.1", "localhost"))
         return list(dict.fromkeys(origins))
+
+    @property
+    def cors_origin_regex(self) -> str:
+        return self.cors_allowed_origin_regex
 
     model_config = {"env_file": str(Path(__file__).resolve().parent.parent / ".env"), "case_sensitive": False}
 
