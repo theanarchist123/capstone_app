@@ -1,6 +1,9 @@
 from pydantic_settings import BaseSettings
+from pydantic import model_validator
 from functools import lru_cache
 from pathlib import Path
+import os
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
@@ -42,6 +45,19 @@ class Settings(BaseSettings):
         return list(dict.fromkeys(origins))
 
     model_config = {"env_file": str(Path(__file__).resolve().parent.parent / ".env"), "case_sensitive": False}
+
+    @model_validator(mode="after")
+    def _normalize_database_url(self):
+        if not self.database_url:
+            return self
+
+        if self.database_url.startswith("sqlite") and (os.getenv("VERCEL") == "1" or self.app_env.lower() == "production"):
+            parsed_url = make_url(self.database_url)
+            database_name = Path(parsed_url.database or "capstone_app.db").name
+            parsed_url = parsed_url.set(database=f"/tmp/{database_name}")
+            self.database_url = str(parsed_url)
+
+        return self
 
 
 @lru_cache()
