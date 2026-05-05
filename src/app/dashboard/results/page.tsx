@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -231,6 +231,14 @@ function PathCard({ rec, rank, isExpanded, onToggle }: {
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 export default function ResultsPage() {
+    return (
+        <Suspense fallback={<div className="p-20 text-center">Loading AI report...</div>}>
+            <ResultsPageContent />
+        </Suspense>
+    );
+}
+
+function ResultsPageContent() {
     const router = useRouter();
     const result = useAnalysisResultStore((s) => s.result);
     const setResult = useAnalysisResultStore((s) => s.setResult);
@@ -264,9 +272,15 @@ export default function ResultsPage() {
         return null;
     }
 
-    const cfg = SUBTYPE_CFG[result.molecular_subtype] ?? DEFAULT_CFG;
-    const ai = result.ai_reasoning ?? {};
-    const recs = result.recommendations ?? [];
+    if (!result) {
+        return null;
+    }
+
+    const analysisResult = result;
+    const cfg = SUBTYPE_CFG[analysisResult.molecular_subtype] ?? DEFAULT_CFG;
+    const ai = analysisResult.ai_reasoning ?? {};
+    const recs = analysisResult.recommendations ?? [];
+    const keyBiomarkers = ai.key_biomarkers ?? [];
 
     const togglePath = (i: number) =>
         setExpandedPaths(prev => ({ ...prev, [i]: !prev[i] }));
@@ -293,19 +307,19 @@ export default function ResultsPage() {
                                 AI-Enhanced · {recs[0]?.guideline_source ?? "NCCN"} Aligned
                             </span>
                         </div>
-                        <h1 className={`text-4xl md:text-5xl font-black ${cfg.color} mb-1`}>{result.molecular_subtype}</h1>
+                        <h1 className={`text-4xl md:text-5xl font-black ${cfg.color} mb-1`}>{analysisResult.molecular_subtype}</h1>
                         <p className="text-slate-400 text-sm font-mono">{cfg.short}</p>
-                        {result.patient_name && (
+                        {analysisResult.patient_name && (
                             <p className="text-slate-300 mt-3 font-medium">
-                                Patient: <span className="text-white">{result.patient_name}</span>
-                                {result.patient_age && <span className="text-slate-400">, {result.patient_age} yrs</span>}
+                                Patient: <span className="text-white">{analysisResult.patient_name}</span>
+                                {analysisResult.patient_age && <span className="text-slate-400">, {analysisResult.patient_age} yrs</span>}
                             </p>
                         )}
                         <p className="text-xs text-slate-600 mt-1">
-                            Analyzed {new Date(result.analyzed_at).toLocaleString()}
+                            Analyzed {new Date(analysisResult.analyzed_at).toLocaleString()}
                         </p>
                     </div>
-                    <ConfidenceRing value={result.subtype_confidence} />
+                    <ConfidenceRing value={analysisResult.subtype_confidence} />
                 </div>
             </motion.div>
 
@@ -323,11 +337,11 @@ export default function ResultsPage() {
                     <p className="text-slate-300 text-sm leading-relaxed">
                         {ai.subtype_rationale ?? "Classification based on NCCN/St. Gallen biomarker criteria."}
                     </p>
-                    {ai.key_biomarkers?.length > 0 && (
+                    {keyBiomarkers.length > 0 && (
                         <div>
                             <p className="text-xs text-slate-500 uppercase tracking-wider mb-2">Key Biomarkers</p>
                             <div className="flex flex-wrap gap-2">
-                                {ai.key_biomarkers.map((b: string, i: number) => (
+                                {keyBiomarkers.map((b: string, i: number) => (
                                     <span key={i} className="text-xs bg-slate-800 border border-slate-700 text-slate-300 px-2 py-1 rounded-lg font-mono">{b}</span>
                                 ))}
                             </div>
@@ -422,20 +436,20 @@ export default function ResultsPage() {
                         </div>
                         <h2 className="font-semibold text-white">Safety Alerts</h2>
                         <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-mono ${
-                            result.alerts.length === 0
+                            analysisResult.alerts.length === 0
                                 ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                                 : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
                         }`}>
-                            {result.alerts.length === 0 ? "✓ None" : `${result.alerts.length} alert${result.alerts.length > 1 ? "s" : ""}`}
+                            {analysisResult.alerts.length === 0 ? "✓ None" : `${analysisResult.alerts.length} alert${analysisResult.alerts.length > 1 ? "s" : ""}`}
                         </span>
                     </div>
-                    {result.alerts.length === 0 ? (
+                    {analysisResult.alerts.length === 0 ? (
                         <div className="flex items-center gap-3 text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 text-sm">
                             <CheckCircle2 className="w-5 h-5 shrink-0" />
                             No contraindications or safety alerts for this patient profile.
                         </div>
                     ) : (
-                        result.alerts.map((a, i) => (
+                        analysisResult.alerts.map((a, i) => (
                             <div key={i} className="flex gap-3 p-4 bg-rose-500/5 border border-rose-500/20 rounded-xl text-sm">
                                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                                 <div>
@@ -461,7 +475,7 @@ export default function ResultsPage() {
                         </div>
                         <h2 className="font-semibold text-white">Classification Logic</h2>
                     </div>
-                    {result.rule_trace.map((r, i) => (
+                    {analysisResult.rule_trace.map((r, i) => (
                         <div key={i} className="flex items-start gap-3 py-2 border-b border-slate-800 last:border-0">
                             <div className="w-5 h-5 rounded-full bg-[#0891B2]/10 border border-[#0891B2]/30 flex items-center justify-center shrink-0 mt-0.5">
                                 <span className="text-xs text-[#0891B2] font-bold">{i + 1}</span>
