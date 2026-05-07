@@ -5,9 +5,10 @@ Uses the Ollama cloud API with llama3.1 for clinical narratives.
 """
 from __future__ import annotations
 
-import os
 import json
+import os
 import httpx
+
 from .biomarker_algorithm import PipelineResult, ClinicalInput
 
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "3eeb9d3cc3464bd9bdaa4ca5131b1d02.6C54tCVm4GBCs42Al7vnC2iJ")
@@ -38,28 +39,85 @@ def _extract_message_content(response: httpx.Response) -> str:
 
 def _build_clinical_prompt(clinical: ClinicalInput, result: PipelineResult) -> str:
     """Build a structured clinical reasoning prompt for the AI."""
-            response = await client.post(
-                f"{OLLAMA_BASE_URL}/chat/completions",
+    recs_text = "\n".join(
+        f"  - {r.get('protocol_name', 'Protocol')} (confidence: {int((r.get('confidence_score',0))*100)}%): {r.get('clinical_notes', '')}"
         for r in result.recommendations[:3]
     )
     alerts_text = "\n".join(
         f"  - {a.get('contraindication_type', 'Alert')}: {a.get('reason', '')}"
         for a in result.alerts
     ) or "  None identified."
-    
+
+    return f"""You are an expert oncologist specializing in breast cancer treatment.
+Analyze this patient's molecular profile and provide a concise, evidence-based clinical reasoning narrative.
+
+PATIENT MOLECULAR PROFILE:
+- ER Status: {clinical.er_status}
+- PR Status: {clinical.pr_status}
+- HER2 Status: {clinical.her2_status}
+- Ki-67: {clinical.ki67_percent}%
+- Stage: {clinical.stage}
+- Grade: {clinical.grade}
+- BRCA1: {clinical.brca1_status}
+- BRCA2: {clinical.brca2_status}
+- Tumour Size: {clinical.tumour_size} cm
+- Lymph Nodes: {"Positive" if clinical.lymph_nodes_involved else "Negative"}
+- LVEF: {clinical.lvef_percent}%
+- Menopausal Status: {clinical.menopausal_status}
+
+ALGORITHMIC CLASSIFICATION:
+- Molecular Subtype: {result.molecular_subtype}
+- Confidence Score: {int(result.subtype_confidence * 100)}%
+
+TOP TREATMENT RECOMMENDATIONS:
+{recs_text or "  None generated."}
+
+SAFETY ALERTS:
+{alerts_text}
+
+Provide a structured clinical reasoning summary in exactly this JSON format:
+{{
+  "subtype_rationale": "2-3 sentences explaining WHY this molecular subtype was determined based on the specific biomarkers",
+  "treatment_rationale": "2-3 sentences explaining why the recommended treatment pathway is appropriate for this patient",
+  "key_biomarkers": ["list", "of", "3-5", "most", "important", "biomarker", "findings"],
+  "clinical_considerations": "1-2 sentences on special considerations or monitoring needed",
+  "prognosis_summary": "1 sentence on expected clinical outlook with recommended treatment",
+  "confidence_explanation": "1 sentence on what additional tests could improve classification confidence"
+}}
+
+Respond ONLY with valid JSON. No extra text."""
+
+
+async def enhance_with_ai(clinical: ClinicalInput, result: PipelineResult) -> dict:
+    """
+    Call Ollama cloud to generate clinical reasoning narrative.
+    Falls back gracefully if the API call fails.
+    """
+    try:
+        prompt = _build_clinical_prompt(clinical, result)
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{OLLAMA_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OLLAMA_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": OLLAMA_MODEL,
+                    "messages": [{"role": "user", "content": prompt}],
                     "stream": False,
                     "temperature": 0.2,
                     "top_p": 0.9,
                     "response_format": {"type": "json_object"},
-                }
+                },
             )
 
             if response.status_code == 200:
                 content = _extract_message_content(response)
                 reasoning = json.loads(content)
                 return reasoning
-            else:
-                return _fallback_reasoning(clinical, result)
+            return _fallback_reasoning(clinical, result)
 
     except Exception as e:
         print(f"[AI Reasoning] Ollama cloud call failed: {e}. Using deterministic fallback.")
@@ -69,7 +127,7 @@ def _build_clinical_prompt(clinical: ClinicalInput, result: PipelineResult) -> s
 def _fallback_reasoning(clinical: ClinicalInput, result: PipelineResult) -> dict:
     """Generate deterministic reasoning when AI is unavailable."""
     subtype = result.molecular_subtype
-    
+
     rationale_map = {
         "Luminal A": f"ER+/PR+ receptor positivity with HER2-negativity and low Ki-67 ({clinical.ki67_percent}%) places this tumour in the Luminal A category, indicating a hormone-driven, low-proliferating phenotype.",
         "Luminal B (HER2-)": f"Despite hormone receptor positivity, the elevated Ki-67 of {clinical.ki67_percent}% indicates high proliferative activity, driving a Luminal B (HER2-) classification per NCCN/St. Gallen criteria.",
@@ -77,9 +135,9 @@ def _fallback_reasoning(clinical: ClinicalInput, result: PipelineResult) -> dict
         "HER2-Enriched": f"HER2 overexpression in the absence of hormone receptor positivity classifies this as HER2-Enriched, mandating anti-HER2 therapy.",
         "Triple-Negative": f"Absence of ER, PR, and HER2 expression defines Triple-Negative Breast Cancer (TNBC), necessitating platinum-based or immunotherapy regimens.",
     }
-    
+
     treatment = result.recommendations[0] if result.recommendations else {}
-    
+
     return {
         "subtype_rationale": rationale_map.get(subtype, f"Based on the biomarker profile, {subtype} classification was determined per international guidelines."),
         "treatment_rationale": f"{treatment.get('protocol_name', 'Standard of care')} is recommended per {treatment.get('guideline_source', 'NCCN')} guidelines with {int((treatment.get('confidence_score', 0.7)) * 100)}% protocol confidence.",
@@ -91,63 +149,6 @@ def _fallback_reasoning(clinical: ClinicalInput, result: PipelineResult) -> dict
             f"Stage: {clinical.stage}",
         ],
         "clinical_considerations": f"Patient's LVEF of {clinical.lvef_percent}% {'may limit anthracycline use' if clinical.lvef_percent and clinical.lvef_percent < 55 else 'is within acceptable range for standard chemotherapy protocols' }.",
-        "prognosis_summary": f"With standard-of-care treatment for {subtype}, 5-year survival outcomes align with published {clinical.stage}-stage cohort data.",
-        "confidence_explanation": f"Current classification confidence is {int(result.subtype_confidence * 100)}%; additional genomic assay (Oncotype DX or PAM50) would further refine treatment decisions.",
-    }
-                headers={
-                    "Authorization": f"Bearer {OLLAMA_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.2,  # Low temp for clinical accuracy
-                        "top_p": 0.9,
-                    }
-                }
-            )
-            
-            if response.status_code == 200:
-                data = response.json()
-                content = data.get("message", {}).get("content", "")
-                # Parse the JSON response
-                reasoning = json.loads(content)
-                return reasoning
-            else:
-                return _fallback_reasoning(clinical, result)
-                
-    except Exception as e:
-        print(f"[AI Reasoning] Ollama cloud call failed: {e}. Using deterministic fallback.")
-        return _fallback_reasoning(clinical, result)
-
-
-def _fallback_reasoning(clinical: ClinicalInput, result: PipelineResult) -> dict:
-    """Generate deterministic reasoning when AI is unavailable."""
-    subtype = result.molecular_subtype
-    
-    rationale_map = {
-        "Luminal A": f"ER+/PR+ receptor positivity with HER2-negativity and low Ki-67 ({clinical.ki67_percent}%) places this tumour in the Luminal A category, indicating a hormone-driven, low-proliferating phenotype.",
-        "Luminal B (HER2-)": f"Despite hormone receptor positivity, the elevated Ki-67 of {clinical.ki67_percent}% indicates high proliferative activity, driving a Luminal B (HER2-) classification per NCCN/St. Gallen criteria.",
-        "Luminal B (HER2+)": f"Concurrent hormone receptor positivity and HER2 amplification defines Luminal B (HER2+) subtype, requiring dual-targeting strategy.",
-        "HER2-Enriched": f"HER2 overexpression in the absence of hormone receptor positivity classifies this as HER2-Enriched, mandating anti-HER2 therapy.",
-        "Triple-Negative": f"Absence of ER, PR, and HER2 expression defines Triple-Negative Breast Cancer (TNBC), necessitating platinum-based or immunotherapy regimens.",
-    }
-    
-    treatment = result.recommendations[0] if result.recommendations else {}
-    
-    return {
-        "subtype_rationale": rationale_map.get(subtype, f"Based on the biomarker profile, {subtype} classification was determined per international guidelines."),
-        "treatment_rationale": f"{treatment.get('protocol_name', 'Standard of care')} is recommended per {treatment.get('guideline_source', 'NCCN')} guidelines with {int((treatment.get('confidence_score', 0.7)) * 100)}% protocol confidence.",
-        "key_biomarkers": [
-            f"ER: {clinical.er_status}",
-            f"PR: {clinical.pr_status}",
-            f"HER2: {clinical.her2_status}",
-            f"Ki-67: {clinical.ki67_percent}%",
-            f"Stage: {clinical.stage}",
-        ],
-        "clinical_considerations": f"Patient's LVEF of {clinical.lvef_percent}% {'may limit anthracycline use' if clinical.lvef_percent and clinical.lvef_percent < 55 else 'is within acceptable range for standard chemotherapy protocols'}.",
         "prognosis_summary": f"With standard-of-care treatment for {subtype}, 5-year survival outcomes align with published {clinical.stage}-stage cohort data.",
         "confidence_explanation": f"Current classification confidence is {int(result.subtype_confidence * 100)}%; additional genomic assay (Oncotype DX or PAM50) would further refine treatment decisions.",
     }
@@ -212,12 +213,11 @@ async def enhance_pathways_with_ai(clinical: ClinicalInput, protocols: list[dict
                     "temperature": 0.15,
                     "top_p": 0.9,
                     "response_format": {"type": "json_object"},
-                }
+                },
             )
             if response.status_code == 200:
                 content = _extract_message_content(response)
                 explainability = json.loads(content)
-                # Merge back into protocols
                 return [
                     {**p, "guideline_explainability": explainability[i] if i < len(explainability) else {}}
                     for i, p in enumerate(protocols)
@@ -337,7 +337,6 @@ def _fallback_pathway_explainability(clinical: ClinicalInput, protocols: list[di
     result = []
     for p in protocols:
         name = p.get("protocol_name", "")
-        # Try exact match, then partial match
         explain = _PATHWAY_LIBRARY.get(name)
         if not explain:
             for key in _PATHWAY_LIBRARY:
@@ -356,4 +355,3 @@ def _fallback_pathway_explainability(clinical: ClinicalInput, protocols: list[di
             }
         result.append({**p, "guideline_explainability": explain})
     return result
-
