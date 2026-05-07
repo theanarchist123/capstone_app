@@ -7,7 +7,7 @@ Used by the onboarding form for real-time results without DB dependency.
 from __future__ import annotations
 
 import asyncio
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Any, Optional
@@ -107,42 +107,50 @@ async def instant_analysis(
     )
 
     case_id_out = None
-    if body.save_case and _creds is not None:
+    if body.save_case:
+        if _creds is None:
+            raise HTTPException(status_code=401, detail="Authentication required to save case")
+
+        from core.security import decode_token
+        from sqlalchemy import select
+        from models.user import User
+        from services.case_service import create_case, save_clinical_data, save_result
+
+        token = _creds.credentials
+        payload = decode_token(token)
+        doctor_id = uuid.UUID(payload["sub"])
+
+        q = select(User).where(User.id == doctor_id)
+        user = (await db.execute(q)).scalar_one_or_none()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        client_host = request.client.host if request.client and request.client.host else ""
+
         try:
-            from core.security import decode_token
-            from sqlalchemy import select
-            from models.user import User
-            from services.case_service import create_case, save_clinical_data, save_result
-            
-            token = _creds.credentials
-            payload = decode_token(token)
-            doctor_id = uuid.UUID(payload["sub"])
-            
-            # Verify user
-            q = select(User).where(User.id == doctor_id)
-            user = (await db.execute(q)).scalar_one_or_none()
-            if user:
-                # 1. Create Case
-                case_body = CaseCreate(patient_name=body.patient_name, patient_age=body.patient_age, tags=["Instant Analysis"])
-                case = await create_case(db, user.id, case_body, request.client.host)
-                case_id_out = case.id
-                
-                # 2. Save Clinical Data
-                await save_clinical_data(db, case.id, cd.model_dump(exclude_none=True), user.id, request.client.host)
-                
-                # 3. Save AI-Enriched Result
-                sim_result = PipelineResult(
-                    molecular_subtype=pipeline_result.molecular_subtype,
-                    subtype_confidence=pipeline_result.subtype_confidence,
-                    recommendations=enriched_paths,
-                    alerts=pipeline_result.alerts,
-                    rule_trace=pipeline_result.rule_trace
-                )
-                await save_result(db, case.id, sim_result, is_simulation=False, doctor_id=user.id)
-                case.status = "under_analysis"
-                await db.commit()
+            case_body = CaseCreate(
+                patient_name=body.patient_name,
+                patient_age=body.patient_age,
+                tags=["Instant Analysis"],
+            )
+            case = await create_case(db, user.id, case_body, client_host)
+            case_id_out = case.id
+
+            await save_clinical_data(db, case.id, cd.model_dump(exclude_none=True), user.id, client_host)
+
+            sim_result = PipelineResult(
+                molecular_subtype=pipeline_result.molecular_subtype,
+                subtype_confidence=pipeline_result.subtype_confidence,
+                recommendations=enriched_paths,
+                alerts=pipeline_result.alerts,
+                rule_trace=pipeline_result.rule_trace,
+            )
+            await save_result(db, case.id, sim_result, is_simulation=False, doctor_id=user.id)
+            case.status = "under_analysis"
+            await db.commit()
         except Exception as e:
-            print("Auto-save case failed:", e)
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to save case: {e}")
 
     return InstantAnalysisResponse(
         molecular_subtype=pipeline_result.molecular_subtype,

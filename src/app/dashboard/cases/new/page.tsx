@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import { useAnalysisResultStore } from "@/store";
+import { useAnalysisResultStore, useCasesStore } from "@/store";
 
 // ─── Reusable Pill Toggle Group ──────────────────────────────────────────────
 const PillToggle = ({ options, value, onChange }: { options: string[], value: string, onChange: (v: string) => void }) => (
@@ -123,6 +123,10 @@ export default function NewCaseForm() {
                 ...result,
                 analyzed_at: new Date().toISOString(),
             });
+
+            if (result.case_id) {
+                await useCasesStore.getState().fetchCases();
+            }
 
             router.push("/dashboard/results");
         } catch (err: any) {

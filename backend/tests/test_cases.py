@@ -6,6 +6,55 @@ import pytest
 
 
 @pytest.mark.asyncio
+async def test_instant_analysis_saves_case(client, auth_headers, db_session, monkeypatch):
+    from api.routes import instant_analysis as ia
+    from models.case import Case
+    from sqlalchemy import select
+
+    async def fake_enhance_paths(clinical_input, recommendations):
+        return [
+            {
+                "protocol_name": "Test Protocol",
+                "guideline_source": "NCCN",
+                "confidence_score": 0.9,
+                "clinical_notes": "Test notes",
+                "drug_names": ["Drug A"],
+            }
+        ]
+
+    async def fake_enhance_ai(clinical_input, pipeline_result):
+        return {"subtype_rationale": "Test rationale"}
+
+    monkeypatch.setattr(ia, "enhance_pathways_with_ai", fake_enhance_paths)
+    monkeypatch.setattr(ia, "enhance_with_ai", fake_enhance_ai)
+
+    resp = await client.post(
+        "/api/analyse/instant",
+        json={
+            "patient_name": "Instant Patient",
+            "patient_age": 49,
+            "save_case": True,
+            "clinical_data": {
+                "stage": "II",
+                "grade": 2,
+                "er_status": "Positive",
+                "pr_status": "Positive",
+                "her2_status": "Negative",
+                "ki67_percent": 11.0,
+            },
+        },
+        headers=auth_headers,
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["case_id"] is not None
+
+    cases = (await db_session.execute(select(Case).where(Case.patient_name == "Instant Patient"))).scalars().all()
+    assert len(cases) == 1
+
+
+@pytest.mark.asyncio
 async def test_create_case(client, auth_headers):
     resp = await client.post("/api/cases/", json={
         "patient_name": "Test Patient", "patient_age": 48
